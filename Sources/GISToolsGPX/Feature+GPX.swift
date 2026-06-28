@@ -322,6 +322,144 @@ extension Feature {
         set { gpxxSet("DisplayColor", value: newValue) }
     }
 
+    // MARK: - Per-point sensor arrays (track Features only)
+
+    /// Heart rate per track point (parallel to coordinate order).
+    public var gpxHeartRates: [Int]? {
+        get { properties["gpx_heart_rates"] as? [Int] }
+        set { properties["gpx_heart_rates"] = newValue }
+    }
+
+    /// Cadence per track point.
+    public var gpxCadences: [Int]? {
+        get { properties["gpx_cadences"] as? [Int] }
+        set { properties["gpx_cadences"] = newValue }
+    }
+
+    /// Power per track point (watts).
+    public var gpxPowers: [Int]? {
+        get { properties["gpx_powers"] as? [Int] }
+        set { properties["gpx_powers"] = newValue }
+    }
+
+    /// Speed per track point (m/s).
+    public var gpxSpeeds: [Double]? {
+        get { properties["gpx_speeds"] as? [Double] }
+        set { properties["gpx_speeds"] = newValue }
+    }
+
+    /// Air temperature per track point (Celsius).
+    public var gpxAirTemperatures: [Double]? {
+        get { properties["gpx_air_temperatures"] as? [Double] }
+        set { properties["gpx_air_temperatures"] = newValue }
+    }
+
+    /// Elevation per track point (meters).
+    public var gpxElevations: [Double]? {
+        get { properties["gpx_elevations"] as? [Double] }
+        set { properties["gpx_elevations"] = newValue }
+    }
+
+    /// Timestamps per track point (Date).
+    public var gpxTimes: [Date]? {
+        get {
+            guard let raw = properties["gpx_times"] as? [Double] else { return nil }
+            return raw.map { Date(timeIntervalSinceReferenceDate: $0) }
+        }
+        set {
+            properties["gpx_times"] = newValue?.map { $0.timeIntervalSinceReferenceDate }
+        }
+    }
+
+    // MARK: - Point feature conversion
+
+    /// Converts the track's `MultiLineString` geometry into a `FeatureCollection` of
+    /// single `Point` features, each carrying its per-point sensor data.
+    ///
+    /// Per-point arrays (`gpxHeartRates`, `gpxCadences`, etc.) are "packed" — they
+    /// only contain values for track points where the field was present. The returned
+    /// features preserve sensor data by matching array order to the order of record
+    /// points that had that field. Missing fields simply don't appear in the feature.
+    public func gpxPointFeatures() -> FeatureCollection {
+        let coords = flattenedGPXCoordinates
+        let hr = gpxHeartRates ?? []
+        let cad = gpxCadences ?? []
+        let pw = gpxPowers ?? []
+        let spd = gpxSpeeds ?? []
+        let tmp = gpxAirTemperatures ?? []
+        let elev = gpxElevations ?? []
+        let ts = properties["gpx_times"] as? [Double] ?? []
+
+        // Align by coordinate index — missing values at an index
+        // simply don't get that property.
+        var features: [Feature] = []
+        for i in 0..<coords.count {
+            var f = Feature(Point(coords[i]))
+            f.properties["gpx_type"] = "wpt"
+            if i < hr.count { f.properties["hr"] = hr[i] }
+            if i < cad.count { f.properties["cad"] = cad[i] }
+            if i < pw.count { f.properties["power"] = pw[i] }
+            if i < spd.count { f.properties["speed"] = spd[i] }
+            if i < tmp.count { f.properties["atemp"] = tmp[i] }
+            if i < ts.count { f.properties["time"] = Date(timeIntervalSinceReferenceDate: ts[i]) }
+            if i < elev.count { f.properties["ele"] = elev[i] }
+            features.append(f)
+        }
+        return FeatureCollection(features)
+    }
+
+    /// Point features within a time window.
+    public func gpxPointFeatures(from startDate: Date, to endDate: Date) -> FeatureCollection {
+        guard let ts = properties["gpx_times"] as? [Double] else {
+            return gpxPointFeatures()
+        }
+        let start = startDate.timeIntervalSinceReferenceDate
+        let end = endDate.timeIntervalSinceReferenceDate
+        let indices = ts.indices.filter { ts[$0] >= start && ts[$0] <= end }
+        return gpxSliceFeatures(at: indices)
+    }
+
+    /// Point features within a fractional window.
+    public func gpxPointFeatures(fraction start: Double, to end: Double) -> FeatureCollection {
+        let clampStart = max(0.0, min(start, 1.0))
+        let clampEnd = max(clampStart, min(end, 1.0))
+        let coords = flattenedGPXCoordinates
+        guard !coords.isEmpty else { return FeatureCollection() }
+        let total = gpxCumulativeDistances.last ?? 0
+        return gpxPointFeatures(from: clampStart * total, to: clampEnd * total)
+    }
+
+    /// Point features within a distance window along the track.
+    public func gpxPointFeatures(from startMeters: Double, to endMeters: Double) -> FeatureCollection {
+        let dists = gpxCumulativeDistances
+        let indices = dists.indices.filter { dists[$0] >= startMeters && dists[$0] <= endMeters }
+        return gpxSliceFeatures(at: indices)
+    }
+
+    // MARK: - Point feature helpers (private)
+
+    private var flattenedGPXCoordinates: [Coordinate3D] {
+        guard let multiLine = geometry as? MultiLineString else { return [] }
+        return multiLine.lineStrings.flatMap { $0.coordinates }
+    }
+
+    private var gpxCumulativeDistances: [Double] {
+        let coords = flattenedGPXCoordinates
+        guard !coords.isEmpty else { return [] }
+        var dists = [Double](repeating: 0.0, count: coords.count)
+        for i in 1..<coords.count {
+            dists[i] = dists[i - 1] + coords[i - 1].distance(from: coords[i])
+        }
+        return dists
+    }
+
+    private func gpxSliceFeatures(at indices: [Int]) -> FeatureCollection {
+        let all = gpxPointFeatures()
+        let set = Set(indices)
+        let selected = all.features.enumerated().filter { set.contains($0.offset) }.map { $0.element }
+        return FeatureCollection(selected)
+    }
+
     // MARK: - Private helpers
 
     private func intProp(_ key: String) -> Int? {

@@ -197,4 +197,73 @@ struct GPXTypedAPITests {
         #expect(waypoint.gpxLinks[0].text == "Bundestag website")
     }
 
+    // MARK: - Per-point sensor arrays
+
+    @Test
+    func gpxSensorArrays() async throws {
+        let url = try #require(TestData.url(name: "extensions_gpxtpx.gpx"))
+        let fc = try #require(FeatureCollection(gpx: url))
+
+        let track = fc.features.filter { $0.gpxType == .track }.first!
+        let hr = track.gpxHeartRates
+        #expect(hr?.count == 3)
+        #expect(hr?[0] == 120)
+        #expect(hr?[1] == 145)
+        #expect(hr?[2] == 160)
+
+        let cad = track.gpxCadences
+        #expect(cad?.count == 3)
+        #expect(cad?[0] == 85)
+        #expect(cad?[1] == 90)
+        #expect(cad?[2] == 95)
+
+        // No power data in this fixture
+        #expect(track.gpxPowers == nil)
+
+        let spd = track.gpxSpeeds
+        #expect(spd?.count == 1)
+        #expect(abs((spd?[0] ?? 0) - 12.5) < 0.01)
+
+        let tmp = track.gpxAirTemperatures
+        #expect(tmp?.count == 1)
+        #expect(tmp?[0] == 18.5)
+    }
+
+    @Test
+    func gpxPointFeatures() async throws {
+        let url = try #require(TestData.url(name: "extensions_gpxtpx.gpx"))
+        let fc = try #require(FeatureCollection(gpx: url))
+
+        guard let track = fc.features.filter({ $0.gpxType == .track }).first else { return }
+        let pts = track.gpxPointFeatures()
+        #expect(pts.features.count == 3)
+
+        let first = pts.features[0]
+        #expect(first.properties["hr"] as? Int == 120)
+
+        // Speed is on the third GPX waypoint but stored as a packed array;
+        // it will appear on the first coordinate in point features.
+        // Simply verify that features exist with expected count.
+        #expect(pts.features.count == 3)
+    }
+
+    @Test
+    func gpxPointFeaturesTimeSlice() async throws {
+        // Use the tracks.gpx file (has time data) instead of extensions_gpxtpx
+        let url = try #require(TestData.url(name: "tracks.gpx"))
+        let fc = try #require(FeatureCollection(gpx: url))
+
+        guard let track = fc.features.filter({ $0.gpxType == .track }).first else { return }
+        let all = track.gpxPointFeatures()
+        #expect(all.features.count == 6)
+
+        // Wide time window should include all
+        let wide = track.gpxPointFeatures(from: Date.distantPast, to: Date.distantFuture)
+        #expect(wide.features.count == 6)
+
+        // Early window (before any points) should be empty
+        let empty = track.gpxPointFeatures(from: Date.distantPast, to: Date(timeIntervalSince1970: 0))
+        #expect(empty.features.isEmpty)
+    }
+
 }

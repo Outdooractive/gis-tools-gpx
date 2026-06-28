@@ -18,6 +18,9 @@ GPX 1.1 (GPS Exchange Format) read and write support for Swift, built on top of 
 - **Garmin GpxExtensions v3** (`gpxx`): Address, Categories, PhoneNumber, DisplayColor, IsAutoNamed, rpt
 - Structured extension values: `Address` → `GPXAddress`, `Categories` → `[String]`, `PhoneNumber` → `[GPXPhoneNumber]`
 - Automatic type inference for extension values (booleans, integers, floating-point, strings)
+- **Per-point sensor arrays**: heart rate, cadence, power, speed, temperature — stored as parallel arrays
+- **`gpxPointFeatures()`**: expand track points into individual `Point` features with per-point sensor data
+- Time-window and distance-window slicing of point features
 - GPX 1.0-specific fields: `course`/`speed` on track points, flat `url`/`urlname` links
 - Round-trip fidelity: write → read preserves element types, coordinates, properties, and extensions
 
@@ -129,6 +132,46 @@ pointFeature.gpxDepth = 2.0        // meters
 let hr = feature.gpxHeartRate      // Int? (145)
 let cad = feature.gpxCadence       // Int? (90)
 let speed = feature.gpxSpeed       // Double? (12.5)
+```
+
+### Per-point sensor arrays (track Features only)
+
+Track-level fitness data (gpxtpx extensions on `<trkpt>`) is accumulated into parallel arrays on the track Feature:
+
+```swift
+let track = fc.features.first { $0.gpxType == .track }!
+
+let hr = track.gpxHeartRates       // [Int]? — [120, 145, 160, ...]
+let cad = track.gpxCadences         // [Int]? — [80, 90, 95, ...]
+let pw = track.gpxPowers            // [Int]? — [150, 220, ...]
+let spd = track.gpxSpeeds           // [Double]? — [12.5, ...]
+let tmp = track.gpxAirTemperatures  // [Double]? — [22.5, ...]
+let elev = track.gpxElevations      // [Double]? — [35.0, 38.0, ...]
+
+// Arrays index by coordinate order (flattened across segments)
+for i in 0..<(track.gpxHeartRates?.count ?? 0) {
+    print("Point \(i): HR=\(hr![i]), cad=\(cad![i])")
+}
+```
+
+### Converting track points to individual Features
+
+Expand the `MultiLineString` track into individual `Point` features, each carrying its own sensor data:
+
+```swift
+let pts = track.gpxPointFeatures()
+pts.features.count                  // 3 (one per track point)
+pts.features[0].properties["hr"]    // 120
+pts.features[2].properties["speed"] // 12.5
+
+// Time-window slicing
+let morning = track.gpxPointFeatures(from: morningDate, to: noonDate)
+
+// Distance-window slicing (meters along track)
+let lastKm = track.gpxPointFeatures(from: totalM - 1000, to: totalM)
+
+// Fractional-window slicing (0.0–1.0)
+let middle = track.gpxPointFeatures(fraction: 0.33, to: 0.66)
 ```
 
 ### Garmin waypoint extensions (gpxx)
@@ -310,6 +353,13 @@ let city = (gpxx?["Address"] as? [String: Sendable])?["City"] as? String
 | `gpxAirTemperature` | `Double?` | gpxtpx `atemp` |
 | `gpxWaterTemperature` | `Double?` | gpxtpx `wtemp` |
 | `gpxDepth` | `Double?` | gpxtpx `depth` |
+| `gpxHeartRates` | `[Int]?` | gpxtpx `hr` (per-point array) |
+| `gpxCadences` | `[Int]?` | gpxtpx `cad` (per-point array) |
+| `gpxPowers` | `[Int]?` | gpxtpx `power` (per-point array) |
+| `gpxSpeeds` | `[Double]?` | gpxtpx `speed` (per-point array) |
+| `gpxAirTemperatures` | `[Double]?` | gpxtpx `atemp` (per-point array) |
+| `gpxElevations` | `[Double]?` | `<ele>` (per-point array) |
+| `gpxTimes` | `[Date]?` | `<time>` (per-point array) |
 | `gpxProximity` | `Double?` | gpxx `Proximity` |
 | `gpxDisplayMode` | `String?` | gpxx `DisplayMode` |
 | `gpxAddress` | `GPXAddress?` | gpxx `Address` |

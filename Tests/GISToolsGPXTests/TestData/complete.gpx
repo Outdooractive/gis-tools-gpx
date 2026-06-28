@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v2"
+     version="1.1" creator="GISToolsGPX test">
+  <metadata>
+    <name>Complete Test GPX</name>
+    <desc>All GPX element types with extensions</desc>
+    <time>2024-01-15T12:00:00.000Z</time>
+    <keywords>complete, test</keywords>
+  </metadata>
+  <wpt lat="52.518611" lon="13.376111">
+    <ele>35.0</ele>
+    <name>Reichstag</name>
+    <type>Landmark</type>
+  </wpt>
+  <rte>
+    <name>Berlin Walk</name>
+    <rtept lat="52.518611" lon="13.376111">
+      <ele>35.0</ele>
+      <name>Start</name>
+    </rtept>
+    <rtept lat="52.516275" lon="13.377704">
+      <ele>36.0</ele>
+      <name>Gate</name>
+    </rtept>
+  </rte>
+  <trk>
+    <name>Morning Ride</name>
+    <trkseg>
+      <trkpt lat="52.518611" lon="13.376111">
+        <ele>35.0</ele>
+        <time>2024-01-15T07:00:00.000Z</time>
+        <extensions>
+          <gpxtpx:TrackPointExtension>
+            <gpxtpx:hr>120</gpxtpx:hr>
+          </gpxtpx:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="52.520000" lon="13.380000">
+        <ele>38.0</ele>
+        <time>2024-01-15T07:05:00.000Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

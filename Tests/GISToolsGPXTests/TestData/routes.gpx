@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="GISToolsGPX test">
+  <rte>
+    <name>Berlin City Walk</name>
+    <cmt>A walking route through Berlin</cmt>
+    <desc>Explore Berlin landmarks on foot</desc>
+    <src>GISTools test data</src>
+    <number>1</number>
+    <type>Walking</type>
+    <rtept lat="52.518611" lon="13.376111">
+      <ele>35.0</ele>
+      <name>Reichstag</name>
+    </rtept>
+    <rtept lat="52.516275" lon="13.377704">
+      <ele>36.0</ele>
+      <name>Brandenburg Gate</name>
+    </rtept>
+    <rtept lat="52.513791" lon="13.378860">
+      <ele>34.0</ele>
+      <name>Holocaust Memorial</name>
+    </rtept>
+  </rte>
+</gpx>

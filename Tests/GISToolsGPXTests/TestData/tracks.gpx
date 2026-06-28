@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="GISToolsGPX test">
+  <trk>
+    <name>Morning Run</name>
+    <cmt>Morning jog around the park</cmt>
+    <desc>5km loop</desc>
+    <src>GISTools test data</src>
+    <number>1</number>
+    <type>Running</type>
+    <trkseg>
+      <trkpt lat="52.518611" lon="13.376111">
+        <ele>35.0</ele>
+        <time>2024-01-15T07:00:00.000Z</time>
+      </trkpt>
+      <trkpt lat="52.519000" lon="13.377000">
+        <ele>36.0</ele>
+        <time>2024-01-15T07:05:00.000Z</time>
+      </trkpt>
+      <trkpt lat="52.519500" lon="13.378000">
+        <ele>37.0</ele>
+        <time>2024-01-15T07:10:00.000Z</time>
+      </trkpt>
+    </trkseg>
+    <trkseg>
+      <trkpt lat="52.519500" lon="13.378000">
+        <ele>37.0</ele>
+        <time>2024-01-15T07:20:00.000Z</time>
+      </trkpt>
+      <trkpt lat="52.518500" lon="13.377000">
+        <ele>36.5</ele>
+        <time>2024-01-15T07:25:00.000Z</time>
+      </trkpt>
+      <trkpt lat="52.518611" lon="13.376111">
+        <ele>35.0</ele>
+        <time>2024-01-15T07:30:00.000Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

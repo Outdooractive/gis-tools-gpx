@@ -1,0 +1,22 @@
+name: Swift
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: swift-actions/setup-swift@v3
+    - uses: actions/checkout@v4
+    - name: Clean Package
+      run: swift package clean
+    - name: Build and Test
+      run: swift test

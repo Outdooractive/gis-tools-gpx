@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="OpenStreetMap trace">
+  <metadata>
+    <name>Berlin OSM Trace</name>
+    <desc>GPS trace recorded while mapping Berlin streets</desc>
+    <keywords>osm, trace, berlin</keywords>
+  </metadata>
+  <trk>
+    <name>Berlin Street Mapping</name>
+    <desc>Walking trace through Berlin Mitte</desc>
+    <trkseg>
+      <trkpt lat="52.518611" lon="13.376111">
+        <time>2024-01-15T08:00:00.000Z</time>
+      </trkpt>
+      <trkpt lat="52.518700" lon="13.376200">
+        <time>2024-01-15T08:00:10.000Z</time>
+      </trkpt>
+      <trkpt lat="52.518800" lon="13.376300">
+        <time>2024-01-15T08:00:20.000Z</time>
+      </trkpt>
+      <trkpt lat="52.519000" lon="13.376500">
+        <time>2024-01-15T08:00:30.000Z</time>
+      </trkpt>
+      <trkpt lat="52.519300" lon="13.376800">
+        <time>2024-01-15T08:00:40.000Z</time>
+      </trkpt>
+      <trkpt lat="52.519700" lon="13.377200">
+        <time>2024-01-15T08:00:50.000Z</time>
+      </trkpt>
+      <trkpt lat="52.520000" lon="13.377500">
+        <time>2024-01-15T08:01:00.000Z</time>
+      </trkpt>
+      <trkpt lat="52.520500" lon="13.378000">
+        <time>2024-01-15T08:01:10.000Z</time>
+      </trkpt>
+      <trkpt lat="52.521000" lon="13.378200">
+        <time>2024-01-15T08:01:20.000Z</time>
+      </trkpt>
+      <trkpt lat="52.521500" lon="13.378400">
+        <time>2024-01-15T08:01:30.000Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+  <wpt lat="52.518611" lon="13.376111">
+    <name>Start</name>
+    <cmt>Starting point of trace</cmt>
+  </wpt>
+  <wpt lat="52.521500" lon="13.378400">
+    <name>End</name>
+    <cmt>Ending point of trace</cmt>
+  </wpt>
+</gpx>

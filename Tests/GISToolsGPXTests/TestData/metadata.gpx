@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="GISToolsGPX test">
+  <metadata>
+    <name>Test GPX File</name>
+    <desc>A GPX file with full metadata for testing</desc>
+    <author>
+      <name>Test Author</name>
+      <email id="test" domain="example.com"/>
+      <link href="https://example.com">
+        <text>Author Website</text>
+      </link>
+    </author>
+    <copyright author="OpenStreetMap Contributors">
+      <year>2024</year>
+      <license>ODbL</license>
+    </copyright>
+    <link href="https://www.openstreetmap.org">
+      <text>OpenStreetMap</text>
+    </link>
+    <time>2024-01-15T12:00:00.000Z</time>
+    <keywords>test, fixture, metadata</keywords>
+    <bounds minlat="52.5" minlon="13.3" maxlat="52.6" maxlon="13.5"/>
+  </metadata>
+</gpx>

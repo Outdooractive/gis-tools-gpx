@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3"
+     version="1.1" creator="GISToolsGPX test">
+  <rte>
+    <name>Scenic Route</name>
+    <extensions>
+      <gpxx:RouteExtension>
+        <gpxx:IsAutoNamed>true</gpxx:IsAutoNamed>
+        <gpxx:DisplayColor>Red</gpxx:DisplayColor>
+      </gpxx:RouteExtension>
+    </extensions>
+    <rtept lat="52.518611" lon="13.376111">
+      <ele>35.0</ele>
+      <name>Start</name>
+    </rtept>
+    <rtept lat="52.520000" lon="13.380000">
+      <ele>38.0</ele>
+      <name>Midpoint</name>
+    </rtept>
+  </rte>
+  <wpt lat="52.518611" lon="13.376111">
+    <name>Trailhead</name>
+    <extensions>
+      <gpxx:WaypointExtension>
+        <gpxx:DisplayMode>SymbolAndName</gpxx:DisplayMode>
+        <gpxx:Temperature>22.5</gpxx:Temperature>
+      </gpxx:WaypointExtension>
+    </extensions>
+  </wpt>
+</gpx>

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="GISToolsGPX test">
+  <wpt lat="52.518611" lon="13.376111">
+    <ele>35.0</ele>
+    <time>2011-12-31T23:59:59.000Z</time>
+    <name>Reichstag (Berlin)</name>
+    <cmt>German parliament building</cmt>
+    <desc>Historic Reichstag building in Berlin</desc>
+    <src>GISTools test data</src>
+    <sym>City</sym>
+    <type>Point of Interest</type>
+    <fix>3d</fix>
+    <sat>12</sat>
+    <hdop>1.5</hdop>
+    <vdop>2.0</vdop>
+    <pdop>2.5</pdop>
+  </wpt>
+  <wpt lat="48.858844" lon="2.294351">
+    <ele>324.0</ele>
+    <time>2012-01-01T00:00:00.000Z</time>
+    <name>Eiffel Tower</name>
+    <sym>Landmark</sym>
+    <type>Point of Interest</type>
+    <fix>3d</fix>
+    <sat>10</sat>
+  </wpt>
+  <wpt lat="51.507351" lon="-0.127758">
+    <ele>11.0</ele>
+    <time>2012-01-01T01:00:00.000Z</time>
+    <name>Big Ben</name>
+    <sym>Clock</sym>
+    <fix>2d</fix>
+  </wpt>
+</gpx>

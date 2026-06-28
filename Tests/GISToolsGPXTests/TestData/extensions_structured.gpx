@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3"
+     xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v2"
+     version="1.1" creator="GISToolsGPX test">
+  <wpt lat="52.518611" lon="13.376111">
+    <name>Outdooractive HQ</name>
+    <extensions>
+      <gpxx:WaypointExtension>
+        <gpxx:Proximity>50.0</gpxx:Proximity>
+        <gpxx:Temperature>22.5</gpxx:Temperature>
+        <gpxx:DisplayMode>SymbolAndName</gpxx:DisplayMode>
+        <gpxx:Categories>
+          <gpxx:Category>Office</gpxx:Category>
+          <gpxx:Category>Technology</gpxx:Category>
+          <gpxx:Category>Outdoor</gpxx:Category>
+        </gpxx:Categories>
+        <gpxx:Address>
+          <gpxx:StreetAddress>123 Alpinestrasse</gpxx:StreetAddress>
+          <gpxx:StreetAddress>Floor 4</gpxx:StreetAddress>
+          <gpxx:City>Berlin</gpxx:City>
+          <gpxx:State>Berlin</gpxx:State>
+          <gpxx:Country>Germany</gpxx:Country>
+          <gpxx:PostalCode>10115</gpxx:PostalCode>
+        </gpxx:Address>
+        <gpxx:PhoneNumber Category="Work">+49-30-555-1234</gpxx:PhoneNumber>
+        <gpxx:PhoneNumber Category="Mobile">+49-170-555-5678</gpxx:PhoneNumber>
+      </gpxx:WaypointExtension>
+    </extensions>
+  </wpt>
+  <rte>
+    <name>Autoroute Test</name>
+    <extensions>
+      <gpxx:RouteExtension>
+        <gpxx:IsAutoNamed>true</gpxx:IsAutoNamed>
+        <gpxx:DisplayColor>Blue</gpxx:DisplayColor>
+      </gpxx:RouteExtension>
+    </extensions>
+    <rtept lat="52.518611" lon="13.376111">
+      <name>Start</name>
+    </rtept>
+    <rtept lat="52.520000" lon="13.380000">
+      <name>Mid</name>
+      <extensions>
+        <gpxx:RoutePointExtension>
+          <gpxx:rpt lat="52.519000" lon="13.378000"/>
+          <gpxx:rpt lat="52.519500" lon="13.379000"/>
+        </gpxx:RoutePointExtension>
+      </extensions>
+    </rtept>
+  </rte>
+  <trk>
+    <name>Fitness Track with Power</name>
+    <type>Cycling</type>
+    <trkseg>
+      <trkpt lat="52.518611" lon="13.376111">
+        <ele>35.0</ele>
+        <time>2024-01-15T08:00:00.000Z</time>
+        <extensions>
+          <gpxtpx:TrackPointExtension>
+            <gpxtpx:hr>120</gpxtpx:hr>
+            <gpxtpx:cad>80</gpxtpx:cad>
+            <gpxtpx:power>150</gpxtpx:power>
+            <gpxtpx:atemp>19.5</gpxtpx:atemp>
+          </gpxtpx:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="52.520000" lon="13.380000">
+        <ele>38.0</ele>
+        <time>2024-01-15T08:05:00.000Z</time>
+        <extensions>
+          <gpxtpx:TrackPointExtension>
+            <gpxtpx:hr>145</gpxtpx:hr>
+            <gpxtpx:cad>90</gpxtpx:cad>
+            <gpxtpx:power>220</gpxtpx:power>
+            <gpxtpx:speed>12.5</gpxtpx:speed>
+          </gpxtpx:TrackPointExtension>
+        </extensions>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

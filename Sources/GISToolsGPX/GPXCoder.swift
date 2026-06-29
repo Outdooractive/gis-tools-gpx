@@ -320,35 +320,38 @@ public enum GPXCoder {
         }
 
         // Accumulate per-point sensor arrays from track segment waypoints
-        var heartRates: [Int] = []
-        var cadences: [Int] = []
-        var powers: [Int] = []
-        var gpxSpeeds: [Double] = []
-        var temperatures: [Double] = []
-        var elevations: [Double] = []
-        var times: [Double] = []  // TimeInterval since reference date
+        // Arrays are aligned to coordinate index — missing values are nil
+        var heartRates: [Int?] = []
+        var cadences: [Int?] = []
+        var powers: [Int?] = []
+        var gpxSpeeds: [Double?] = []
+        var temperatures: [Double?] = []
+        var elevations: [Double?] = []
+        var times: [Double?] = []  // TimeInterval since reference date
 
         for segment in trk.segments {
             for wp in segment {
                 if let t = wp.time { times.append(t.timeIntervalSinceReferenceDate) }
+                else { times.append(nil) }
                 if let e = wp.elevation { elevations.append(e) }
-                if let ext = wp.extensions["gpxtpx"] {
-                    if let hr = ext["hr"] as? Int { heartRates.append(hr) }
-                    if let cad = ext["cad"] as? Int { cadences.append(cad) }
-                    if let pw = ext["power"] as? Int { powers.append(pw) }
-                    if let sp = ext["speed"] as? Double { gpxSpeeds.append(sp) }
-                    if let tmp = ext["atemp"] as? Double { temperatures.append(tmp) }
-                }
+                else { elevations.append(nil) }
+                let ext = wp.extensions["gpxtpx"]
+                heartRates.append(ext?["hr"] as? Int)
+                cadences.append(ext?["cad"] as? Int)
+                powers.append(ext?["power"] as? Int)
+                gpxSpeeds.append(ext?["speed"] as? Double)
+                temperatures.append(ext?["atemp"] as? Double)
             }
         }
 
-        if !heartRates.isEmpty { feature.properties["gpx_heart_rates"] = heartRates }
-        if !cadences.isEmpty { feature.properties["gpx_cadences"] = cadences }
-        if !powers.isEmpty { feature.properties["gpx_powers"] = powers }
-        if !gpxSpeeds.isEmpty { feature.properties["gpx_speeds"] = gpxSpeeds }
-        if !temperatures.isEmpty { feature.properties["gpx_air_temperatures"] = temperatures }
-        if !elevations.isEmpty { feature.properties["gpx_elevations"] = elevations }
-        if !times.isEmpty { feature.properties["gpx_times"] = times }
+        // Only store arrays that have at least one non-nil value
+        if heartRates.contains(where: { $0 != nil }) { feature.properties["gpx_heart_rates"] = heartRates }
+        if cadences.contains(where: { $0 != nil }) { feature.properties["gpx_cadences"] = cadences }
+        if powers.contains(where: { $0 != nil }) { feature.properties["gpx_powers"] = powers }
+        if gpxSpeeds.contains(where: { $0 != nil }) { feature.properties["gpx_speeds"] = gpxSpeeds }
+        if temperatures.contains(where: { $0 != nil }) { feature.properties["gpx_air_temperatures"] = temperatures }
+        if elevations.contains(where: { $0 != nil }) { feature.properties["gpx_elevations"] = elevations }
+        if times.contains(where: { $0 != nil }) { feature.properties["gpx_times"] = times }
 
         return feature
     }

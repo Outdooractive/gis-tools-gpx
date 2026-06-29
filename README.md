@@ -141,16 +141,18 @@ Track-level fitness data (gpxtpx extensions on `<trkpt>`) is accumulated into pa
 ```swift
 let track = fc.features.first { $0.gpxType == .track }!
 
-let hr = track.gpxHeartRates       // [Int]? — [120, 145, 160, ...]
-let cad = track.gpxCadences         // [Int]? — [80, 90, 95, ...]
-let pw = track.gpxPowers            // [Int]? — [150, 220, ...]
-let spd = track.gpxSpeeds           // [Double]? — [12.5, ...]
-let tmp = track.gpxAirTemperatures  // [Double]? — [22.5, ...]
-let elev = track.gpxElevations      // [Double]? — [35.0, 38.0, ...]
+let hr = track.gpxHeartRates       // [Int?]? — [120, 145, 160, ...]
+let cad = track.gpxCadences         // [Int?]? — [80, 90, 95, ...]
+let pw = track.gpxPowers            // [Int?]? — [150, 220, ...] (nil = missing)
+let spd = track.gpxSpeeds           // [Double?]? — [12.5, ...]
+let tmp = track.gpxAirTemperatures  // [Double?]? — [22.5, ...]
+let elev = track.gpxElevations      // [Double?]? — [35.0, 38.0, ...]
 
-// Arrays index by coordinate order (flattened across segments)
+// Arrays align with coordinates — nil where no data was recorded
 for i in 0..<(track.gpxHeartRates?.count ?? 0) {
-    print("Point \(i): HR=\(hr![i]), cad=\(cad![i])")
+    if let hr = hr?[i], let cad = cad?[i] {
+        print("Point \(i): HR=\(hr), cad=\(cad)")
+    }
 }
 ```
 
@@ -161,8 +163,8 @@ Expand the `MultiLineString` track into individual `Point` features, each carryi
 ```swift
 let pts = track.gpxPointFeatures()
 pts.features.count                  // 3 (one per track point)
-pts.features[0].properties["hr"]    // 120
-pts.features[2].properties["speed"] // 12.5
+pts.features[0].gpxHeartRate        // 120 (via convenience accessor)
+pts.features[2].gpxSpeed            // 12.5 (reads from extensions["gpxtpx"])
 
 // Time-window slicing
 let morning = track.gpxPointFeatures(from: morningDate, to: noonDate)
@@ -173,6 +175,26 @@ let lastKm = track.gpxPointFeatures(from: totalM - 1000, to: totalM)
 // Fractional-window slicing (0.0–1.0)
 let middle = track.gpxPointFeatures(fraction: 0.33, to: 0.66)
 ```
+
+### Reconstructing a track from point features
+
+Convert a `FeatureCollection` of Point features back into a `Feature<MultiLineString>` track with per-point sensor arrays rebuilt:
+
+```swift
+let pts = track.gpxPointFeatures()
+
+// Via FeatureCollection:
+let rebuilt = pts.gpxTrackFromPointFeatures()
+rebuilt?.gpxHeartRates?[0]   // 120
+rebuilt?.gpxSpeeds?[2]        // 12.5
+
+// Via Feature convenience init (also reads extensions["gpxtpx"]):
+let track = Feature(gpxTrackFrom: pts)
+track?.gpxCadences?[1]        // 90
+track?.gpxHeartRate           // nil (track Feature has arrays, not single values)
+```
+
+Non-Point features are silently skipped. Returns `nil` if no Point features exist. The gpxtpx extension data (hr, cad, power, speed, atemp) is extracted from each point and re-accumulated into parallel arrays, so round-trips preserve sensor data. The track has a single segment (no lap splitting).
 
 ### Garmin waypoint extensions (gpxx)
 
@@ -353,13 +375,13 @@ let city = (gpxx?["Address"] as? [String: Sendable])?["City"] as? String
 | `gpxAirTemperature` | `Double?` | gpxtpx `atemp` |
 | `gpxWaterTemperature` | `Double?` | gpxtpx `wtemp` |
 | `gpxDepth` | `Double?` | gpxtpx `depth` |
-| `gpxHeartRates` | `[Int]?` | gpxtpx `hr` (per-point array) |
-| `gpxCadences` | `[Int]?` | gpxtpx `cad` (per-point array) |
-| `gpxPowers` | `[Int]?` | gpxtpx `power` (per-point array) |
-| `gpxSpeeds` | `[Double]?` | gpxtpx `speed` (per-point array) |
-| `gpxAirTemperatures` | `[Double]?` | gpxtpx `atemp` (per-point array) |
-| `gpxElevations` | `[Double]?` | `<ele>` (per-point array) |
-| `gpxTimes` | `[Date]?` | `<time>` (per-point array) |
+| `gpxHeartRates` | `[Int?]?` | gpxtpx `hr` (per-point array) |
+| `gpxCadences` | `[Int?]?` | gpxtpx `cad` (per-point array) |
+| `gpxPowers` | `[Int?]?` | gpxtpx `power` (per-point array) |
+| `gpxSpeeds` | `[Double?]?` | gpxtpx `speed` (per-point array) |
+| `gpxAirTemperatures` | `[Double?]?` | gpxtpx `atemp` (per-point array) |
+| `gpxElevations` | `[Double?]?` | `<ele>` (per-point array) |
+| `gpxTimes` | `[Date?]?` | `<time>` (per-point array) |
 | `gpxProximity` | `Double?` | gpxx `Proximity` |
 | `gpxDisplayMode` | `String?` | gpxx `DisplayMode` |
 | `gpxAddress` | `GPXAddress?` | gpxx `Address` |
@@ -372,6 +394,9 @@ let city = (gpxx?["Address"] as? [String: Sendable])?["City"] as? String
 
 | Property | Type | GPX Source |
 |---|---|---|
+| `gpxWaypoints` | `[Feature]` | waypoints (filtered by `gpxType`) |
+| `gpxRoutes` | `[Feature]` | routes (filtered by `gpxType`) |
+| `gpxTracks` | `[Feature]` | tracks (filtered by `gpxType`) |
 | `gpxMetadataName` | `String?` | `<metadata><name>` |
 | `gpxMetadataDescription` | `String?` | `<metadata><desc>` |
 | `gpxMetadataKeywords` | `String?` | `<metadata><keywords>` |
@@ -380,6 +405,18 @@ let city = (gpxx?["Address"] as? [String: Sendable])?["City"] as? String
 | `gpxMetadataCopyright` | `GPXCopyright?` | `<metadata><copyright>` |
 | `gpxMetadataLinks` | `[GPXLink]` | `<metadata><link>` |
 | `gpxMetadataBounds` | `BoundingBox?` | `<metadata><bounds>` |
+
+**Methods on `FeatureCollection`:**
+
+| Method | Returns | Description |
+|---|---|---|
+| `gpxTrackFromPointFeatures()` | `Feature?` | Reconstructs a `Feature<MultiLineString>` from Point features produced by `gpxPointFeatures()`. gpxtpx sensor data is re-accumulated into per-point arrays. Returns `nil` if no Point features exist. |
+
+**Convenience initializer on `Feature`:**
+
+| Initializer | Description |
+|---|---|
+| `Feature(gpxTrackFrom:)` | Creates a track Feature from a `FeatureCollection` of Point features. Same as `gpxTrackFromPointFeatures()`. |
 
 **Public model types:**
 

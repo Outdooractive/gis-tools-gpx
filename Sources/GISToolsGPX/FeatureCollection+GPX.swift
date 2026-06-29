@@ -1,9 +1,80 @@
 import Foundation
 import GISTools
 
-// MARK: - FeatureCollection GPX metadata convenience properties
+// MARK: - FeatureCollection GPX convenience properties
 
 extension FeatureCollection {
+
+    // MARK: - Element type filtering
+
+    /// Features that originated from `<wpt>` waypoint elements.
+    public var gpxWaypoints: [Feature] {
+        features.filter { $0.gpxType == .waypoint }
+    }
+
+    /// Features that originated from `<rte>` route elements.
+    public var gpxRoutes: [Feature] {
+        features.filter { $0.gpxType == .route }
+    }
+
+    /// Features that originated from `<trk>` track elements.
+    public var gpxTracks: [Feature] {
+        features.filter { $0.gpxType == .track }
+    }
+
+    // MARK: - Track reconstruction from point features
+
+    /// Reconstructs a track ``Feature`` from Point features produced by
+    /// ``Feature/gpxPointFeatures()``.
+    ///
+    /// Non-Point features are silently skipped. gpxtpx extension data
+    /// (hr, cad, power, speed, atemp) is re-accumulated into per-point
+    /// arrays on the returned track Feature.
+    ///
+    /// - Returns: A `Feature<MultiLineString>` with per-point sensor
+    ///            arrays, or `nil` if no Point features were found.
+    public func gpxTrackFromPointFeatures() -> Feature? {
+        let pointFeatures = features.filter { $0.geometry is Point }
+        guard !pointFeatures.isEmpty else { return nil }
+
+        let coords = pointFeatures.map { ($0.geometry as! Point).coordinate }
+        let multiLine = MultiLineString(unchecked: [LineString(unchecked: coords)])
+
+        var feature = Feature(multiLine)
+        feature.properties["gpx_type"] = "trk"
+
+        var heartRates: [Int?] = []
+        var cadences: [Int?] = []
+        var powers: [Int?] = []
+        var speeds: [Double?] = []
+        var temperatures: [Double?] = []
+        var elevations: [Double?] = []
+        var times: [Double?] = []
+
+        for pf in pointFeatures {
+            let ext = pf.properties["extensions"] as? [String: Sendable]
+            let gpxtpx = ext?["gpxtpx"] as? [String: Sendable]
+            heartRates.append(gpxtpx?["hr"] as? Int)
+            cadences.append(gpxtpx?["cad"] as? Int)
+            powers.append(gpxtpx?["power"] as? Int)
+            speeds.append(gpxtpx?["speed"] as? Double)
+            temperatures.append(gpxtpx?["atemp"] as? Double)
+            elevations.append(pf.properties["ele"] as? Double)
+            times.append((pf.properties["time"] as? Date)?.timeIntervalSinceReferenceDate)
+        }
+
+        if heartRates.contains(where: { $0 != nil }) { feature.properties["gpx_heart_rates"] = heartRates }
+        if cadences.contains(where: { $0 != nil }) { feature.properties["gpx_cadences"] = cadences }
+        if powers.contains(where: { $0 != nil }) { feature.properties["gpx_powers"] = powers }
+        if speeds.contains(where: { $0 != nil }) { feature.properties["gpx_speeds"] = speeds }
+        if temperatures.contains(where: { $0 != nil }) { feature.properties["gpx_air_temperatures"] = temperatures }
+        if elevations.contains(where: { $0 != nil }) { feature.properties["gpx_elevations"] = elevations }
+        if times.contains(where: { $0 != nil }) { feature.properties["gpx_times"] = times }
+
+        return feature
+    }
+
+    // MARK: - Metadata
 
     /// The GPX file name from `<metadata><name>`.
     public var gpxMetadataName: String? {

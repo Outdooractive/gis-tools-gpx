@@ -203,4 +203,47 @@ struct GPXReadTests {
         #expect(waypoints[1].properties["name"] as? String == "End")
     }
 
+    // MARK: - Data-based API
+
+    @Test
+    func readWaypointsFromData() throws {
+        let url = try #require(TestData.url(name: "waypoints.gpx"))
+        let fileData = try Data(contentsOf: url)
+
+        // GPXCoder.read(from: Data)
+        let fc = try GPXCoder.read(from: fileData)
+        #expect(fc.features.count == 3)
+
+        let berlin = fc.features[0]
+        #expect(berlin.properties["name"] as? String == "Reichstag (Berlin)")
+        let point = try #require(berlin.geometry as? Point)
+        #expect(point.coordinate.latitude == 52.518611)
+        #expect(point.coordinate.longitude == 13.376111)
+    }
+
+    @Test
+    func readRoutesFromData() throws {
+        let url = try #require(TestData.url(name: "routes.gpx"))
+        let fileData = try Data(contentsOf: url)
+
+        // FeatureCollection(gpxData:)
+        let fc = try #require(FeatureCollection(gpxData: fileData))
+        let routes = fc.features.filter { ($0.properties["gpx_type"] as? String) == "rte" }
+        #expect(routes.count == 1)
+        let lineString = try #require(routes[0].geometry as? LineString)
+        #expect(lineString.coordinates.count == 3)
+    }
+
+    @Test
+    func readTracksFromData() throws {
+        let url = try #require(TestData.url(name: "tracks.gpx"))
+        let fileData = try Data(contentsOf: url)
+
+        let fc = try GPXCoder.read(from: fileData)
+        let tracks = fc.features.filter { ($0.properties["gpx_type"] as? String) == "trk" }
+        #expect(tracks.count == 1)
+        let multiLine = try #require(tracks[0].geometry as? MultiLineString)
+        #expect(multiLine.lineStrings.count == 2)
+    }
+
 }

@@ -44,6 +44,25 @@ public enum GPXCoder {
 
     // MARK: - Write
 
+    /// Serializes a ``FeatureCollection`` to GPX data.
+    ///
+    /// - Parameters:
+    ///   - featureCollection: The FeatureCollection to serialize.
+    ///   - creator: The `creator` attribute value (default `"GISToolsGPX"`).
+    /// - Returns: The GPX data.
+    /// - Throws: ``GPXError`` if serialization fails.
+    public static func write(
+        _ featureCollection: FeatureCollection,
+        creator: String = "GISToolsGPX"
+    ) throws -> Data {
+        let gpx = try convertFromGeoJSON(featureCollection)
+        let xml = GPXWriter.write(gpx, creator: creator)
+        guard let data = xml.data(using: .utf8) else {
+            throw GPXError.invalidEncoding
+        }
+        return data
+    }
+
     /// Writes a ``FeatureCollection`` as a GPX file.
     ///
     /// - Parameters:
@@ -56,11 +75,7 @@ public enum GPXCoder {
         to url: URL,
         creator: String = "GISToolsGPX"
     ) throws {
-        let gpx = try convertFromGeoJSON(featureCollection)
-        let xml = GPXWriter.write(gpx, creator: creator)
-        guard let data = xml.data(using: .utf8) else {
-            throw GPXError.invalidEncoding
-        }
+        let data = try write(featureCollection, creator: creator)
         do {
             try data.write(to: url)
         }

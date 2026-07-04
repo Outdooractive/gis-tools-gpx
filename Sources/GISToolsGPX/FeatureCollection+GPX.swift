@@ -21,6 +21,15 @@ extension FeatureCollection {
         self = fc
     }
 
+    /// Returns the receiver serialised as GPX data.
+    ///
+    /// - Parameter creator: The `creator` attribute value (default `"GISToolsGPX"`).
+    /// - Returns: The GPX data.
+    /// - Throws: ``GPXError`` if serialization fails.
+    public func gpxData(creator: String = "GISToolsGPX") throws -> Data {
+        try GPXCoder.write(self, creator: creator)
+    }
+
     /// Writes the receiver as a GPX file.
     ///
     /// - Parameters:
@@ -30,7 +39,8 @@ extension FeatureCollection {
         to url: URL,
         creator: String = "GISToolsGPX"
     ) throws {
-        try GPXCoder.write(self, to: url, creator: creator)
+        let data = try gpxData(creator: creator)
+        try data.write(to: url)
     }
 
 }

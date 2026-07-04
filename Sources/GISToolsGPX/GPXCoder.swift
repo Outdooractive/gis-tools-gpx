@@ -1,32 +1,6 @@
 import Foundation
 import GISTools
 
-// MARK: - FeatureCollection convenience extensions
-
-extension FeatureCollection {
-
-    /// Creates a ``FeatureCollection`` from a GPX file.
-    ///
-    /// - Parameter gpx: The URL of the GPX file.
-    public init?(gpx url: URL) {
-        guard let fc = try? GPXCoder.read(from: url) else { return nil }
-        self = fc
-    }
-
-    /// Writes the receiver as a GPX file.
-    ///
-    /// - Parameters:
-    ///   - url: The output URL (must include `.gpx` extension).
-    ///   - creator: The value for the `creator` attribute (default `"GISToolsGPX"`).
-    public func writeGPX(
-        to url: URL,
-        creator: String = "GISToolsGPX"
-    ) throws {
-        try GPXCoder.write(self, to: url, creator: creator)
-    }
-
-}
-
 // MARK: - GPXCoder
 
 /// Reads and writes GPX 1.1 files (GPS Exchange Format).
@@ -55,6 +29,16 @@ public enum GPXCoder {
     /// - Throws: ``GPXError`` if the file cannot be read or parsed.
     public static func read(from url: URL) throws -> FeatureCollection {
         let gpx = try GPXParser.parse(url: url)
+        return try convertToGeoJSON(gpx)
+    }
+
+    /// Reads GPX data and returns a ``FeatureCollection``.
+    ///
+    /// - Parameter data: The raw GPX data.
+    /// - Returns: A ``FeatureCollection`` with the GPX data.
+    /// - Throws: ``GPXError`` if the data cannot be parsed.
+    public static func read(from data: Data) throws -> FeatureCollection {
+        let gpx = try GPXParser.parse(data: data)
         return try convertToGeoJSON(gpx)
     }
 

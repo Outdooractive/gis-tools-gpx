@@ -156,6 +156,22 @@ for i in 0..<(track.gpxHeartRates?.count ?? 0) {
 }
 ```
 
+### Per-point data arrays (route Features only)
+
+Route-point-level data on `<rtept>` is accumulated into parallel arrays on the route Feature, mirroring the track convention:
+
+```swift
+let route = fc.features.first { $0.gpxType == .route }!
+
+let names = route.gpxRouteNames       // [String?]? — ["Reichstag", "Brandenburg Gate", ...]
+let times = route.gpxRouteTimes       // [Date?]?  — one per rtept
+let comments = route.gpxRouteComments // [String?]?
+let links = route.gpxRouteLinks       // [[GPXLink]?]? — one inner list per rtept
+let exts = route.gpxRouteExtensions   // [[String: [String: Sendable]]?]? — per-rtept extensions (e.g. gpxx RoutePointExtension)
+```
+
+Arrays align with coordinates — `nil` where no data was recorded. Round-trips preserve rtept name, comment, description, source, symbol, type, time, links, and extensions (including Garmin `RoutePointExtension` autoroute points).
+
 ### Converting track points to individual Features
 
 Expand the `MultiLineString` track into individual `Point` features, each carrying its own sensor data:
@@ -379,9 +395,19 @@ let city = (gpxx?["Address"] as? [String: Sendable])?["City"] as? String
 | `gpxCadences` | `[Int?]?` | gpxtpx `cad` (per-point array) |
 | `gpxPowers` | `[Int?]?` | gpxtpx `power` (per-point array) |
 | `gpxSpeeds` | `[Double?]?` | gpxtpx `speed` (per-point array) |
+| `gpxCourses` | `[Double?]?` | gpxtpx `course` (per-point array) |
 | `gpxAirTemperatures` | `[Double?]?` | gpxtpx `atemp` (per-point array) |
 | `gpxElevations` | `[Double?]?` | `<ele>` (per-point array) |
 | `gpxTimes` | `[Date?]?` | `<time>` (per-point array) |
+| `gpxRouteTimes` | `[Date?]?` | `<rtept><time>` (per-rtept array) |
+| `gpxRouteNames` | `[String?]?` | `<rtept><name>` (per-rtept array) |
+| `gpxRouteComments` | `[String?]?` | `<rtept><cmt>` (per-rtept array) |
+| `gpxRouteDescriptions` | `[String?]?` | `<rtept><desc>` (per-rtept array) |
+| `gpxRouteSources` | `[String?]?` | `<rtept><src>` (per-rtept array) |
+| `gpxRouteSymbols` | `[String?]?` | `<rtept><sym>` (per-rtept array) |
+| `gpxRouteTypes` | `[String?]?` | `<rtept><type>` (per-rtept array) |
+| `gpxRouteLinks` | `[[GPXLink]?]?` | `<rtept><link>` (per-rtept list) |
+| `gpxRouteExtensions` | `[[String: [String: Sendable]]?]?` | `<rtept><extensions>` (per-rtept dict) |
 | `gpxProximity` | `Double?` | gpxx `Proximity` |
 | `gpxDisplayMode` | `String?` | gpxx `DisplayMode` |
 | `gpxAddress` | `GPXAddress?` | gpxx `Address` |
@@ -437,10 +463,8 @@ let city = (gpxx?["Address"] as? [String: Sendable])?["City"] as? String
 
 ### Limitations
 
-- GPX 1.0 is **read-only**; written files always use GPX 1.1
+- GPX 1.0 is **read-only**; written files always use GPX 1.1. GPX 1.0 `<course>`/`<speed>` on `<trkpt>` are upgraded to `gpxtpx:course`/`gpxtpx:speed` extensions on write, so they round-trip correctly.
 - List-type extensions (Categories, PhoneNumber) use generic element names on write; exact child-element names may differ on round-trip
-- Track-point-level and route-point-level extensions are lost during write because only track/route `Feature` objects are serialized (segment-level data is not individually written)
-- `Subclass` (hexBinary) and `rpt` autoroute points are parsed but not exposed via the typed API
 
 ## Contributing
 

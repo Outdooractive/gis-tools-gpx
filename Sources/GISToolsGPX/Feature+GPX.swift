@@ -348,6 +348,13 @@ extension Feature {
         set { properties["gpx_speeds"] = newValue }
     }
 
+    /// Course over ground per track point (degrees true).
+    /// Sourced from `gpxtpx:course` or GPX 1.0 flat `<course>`.
+    public var gpxCourses: [Double?]? {
+        get { properties["gpx_courses"] as? [Double?] }
+        set { properties["gpx_courses"] = newValue }
+    }
+
     /// Air temperature per track point (Celsius).
     public var gpxAirTemperatures: [Double?]? {
         get { properties["gpx_air_temperatures"] as? [Double?] }
@@ -368,6 +375,119 @@ extension Feature {
         }
         set {
             properties["gpx_times"] = newValue?.map { $0?.timeIntervalSinceReferenceDate }
+        }
+    }
+
+    // MARK: - Per-point data arrays (route Features only)
+
+    /// Timestamps per route point (parallel to coordinate order).
+    /// Maps nil TimeIntervals to nil Dates.
+    public var gpxRouteTimes: [Date?]? {
+        get {
+            guard let raw = properties["gpx_route_times"] as? [Double?] else { return nil }
+            return raw.map { $0.map { Date(timeIntervalSinceReferenceDate: $0) } }
+        }
+        set {
+            properties["gpx_route_times"] = newValue?.map { $0?.timeIntervalSinceReferenceDate }
+        }
+    }
+
+    /// Names per route point (`<rtept><name>`).
+    public var gpxRouteNames: [String?]? {
+        get { properties["gpx_route_names"] as? [String?] }
+        set { properties["gpx_route_names"] = newValue }
+    }
+
+    /// Comments per route point (`<rtept><cmt>`).
+    public var gpxRouteComments: [String?]? {
+        get { properties["gpx_route_comments"] as? [String?] }
+        set { properties["gpx_route_comments"] = newValue }
+    }
+
+    /// Descriptions per route point (`<rtept><desc>`).
+    public var gpxRouteDescriptions: [String?]? {
+        get { properties["gpx_route_descriptions"] as? [String?] }
+        set { properties["gpx_route_descriptions"] = newValue }
+    }
+
+    /// Sources per route point (`<rtept><src>`).
+    public var gpxRouteSources: [String?]? {
+        get { properties["gpx_route_sources"] as? [String?] }
+        set { properties["gpx_route_sources"] = newValue }
+    }
+
+    /// Symbols per route point (`<rtept><sym>`).
+    public var gpxRouteSymbols: [String?]? {
+        get { properties["gpx_route_symbols"] as? [String?] }
+        set { properties["gpx_route_symbols"] = newValue }
+    }
+
+    /// Type classifications per route point (`<rtept><type>`).
+    public var gpxRouteTypes: [String?]? {
+        get { properties["gpx_route_types"] as? [String?] }
+        set { properties["gpx_route_types"] = newValue }
+    }
+
+    /// Links per route point — one inner array per rtept.
+    public var gpxRouteLinks: [[GPXLink]?]? {
+        get {
+            guard let raw = properties["gpx_route_links"] as? [[[String: String]]] else { return nil }
+            return raw.map { linkDicts -> [GPXLink]? in
+                let parsed = linkDicts.compactMap { dict -> GPXLink? in
+                    guard let href = dict["href"] else { return nil }
+                    return GPXLink(href: href, text: dict["text"], type: dict["type"])
+                }
+                return parsed.isEmpty ? nil : parsed
+            }
+        }
+        set {
+            guard let arr = newValue else {
+                properties["gpx_route_links"] = nil
+                return
+            }
+            let dicts: [[[String: String]]] = arr.map { links -> [[String: String]] in
+                guard let links else { return [] }
+                return links.map { link in
+                    var d: [String: String] = ["href": link.href]
+                    if let t = link.text { d["text"] = t }
+                    if let tp = link.type { d["type"] = tp }
+                    return d
+                }
+            }
+            properties["gpx_route_links"] = dicts.contains(where: { !$0.isEmpty }) ? dicts : nil
+        }
+    }
+
+    /// Raw extensions dict per route point (`<rtept><extensions>…</extensions>`).
+    /// Each entry maps an extension namespace prefix (e.g. `"gpxx"`) to its
+    /// dictionary of child elements.
+    public var gpxRouteExtensions: [[String: [String: Sendable]]?]? {
+        get {
+            guard let raw = properties["gpx_route_extensions"] as? [[String: Sendable]] else { return nil }
+            return raw.map { dict -> [String: [String: Sendable]]? in
+                var result: [String: [String: Sendable]] = [:]
+                for (prefix, value) in dict {
+                    if let nsDict = value as? [String: Sendable] {
+                        result[prefix] = nsDict
+                    }
+                }
+                return result.isEmpty ? nil : result
+            }
+        }
+        set {
+            guard let arr = newValue else {
+                properties["gpx_route_extensions"] = nil
+                return
+            }
+            let dicts: [[String: Sendable]] = arr.map { ext -> [String: Sendable] in
+                guard let ext else { return [:] }
+                var d: [String: Sendable] = [:]
+                for (prefix, nsDict) in ext {
+                    d[prefix] = nsDict as Sendable
+                }
+                return d
+            }
+            properties["gpx_route_extensions"] = dicts.contains(where: { !$0.isEmpty }) ? dicts : nil
         }
     }
 

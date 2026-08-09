@@ -261,6 +261,50 @@ public enum GPXCoder {
             feature.properties["extensions"] = rte.extensions as [String: Sendable]
         }
 
+        // Per-rtept data is accumulated into parallel arrays aligned to the
+        // LineString coordinates. Arrays are only stored when they contain
+        // at least one non-nil value, mirroring the track convention.
+        var times: [Double?] = []
+        var names: [String?] = []
+        var comments: [String?] = []
+        var descriptions: [String?] = []
+        var sources: [String?] = []
+        var symbols: [String?] = []
+        var types: [String?] = []
+        var links: [[[String: String]]] = []
+        var rteExtensions: [[String: Sendable]] = []
+
+        for wp in rte.points {
+            times.append(wp.time?.timeIntervalSinceReferenceDate)
+            names.append(wp.name)
+            comments.append(wp.comment)
+            descriptions.append(wp.description)
+            sources.append(wp.source)
+            symbols.append(wp.symbol)
+            types.append(wp.type)
+            links.append(linksToDicts(wp.links))
+            if wp.extensions.isEmpty {
+                rteExtensions.append([:])
+            }
+            else {
+                rteExtensions.append(wp.extensions as [String: Sendable])
+            }
+        }
+
+        if times.contains(where: { $0 != nil }) { feature.properties["gpx_route_times"] = times }
+        if names.contains(where: { $0 != nil }) { feature.properties["gpx_route_names"] = names }
+        if comments.contains(where: { $0 != nil }) { feature.properties["gpx_route_comments"] = comments }
+        if descriptions.contains(where: { $0 != nil }) { feature.properties["gpx_route_descriptions"] = descriptions }
+        if sources.contains(where: { $0 != nil }) { feature.properties["gpx_route_sources"] = sources }
+        if symbols.contains(where: { $0 != nil }) { feature.properties["gpx_route_symbols"] = symbols }
+        if types.contains(where: { $0 != nil }) { feature.properties["gpx_route_types"] = types }
+        if links.contains(where: { !$0.isEmpty }) {
+            feature.properties["gpx_route_links"] = links as [[[String: String]]]
+        }
+        if rteExtensions.contains(where: { !$0.isEmpty }) {
+            feature.properties["gpx_route_extensions"] = rteExtensions as [[String: Sendable]]
+        }
+
         return feature
     }
 
@@ -272,11 +316,50 @@ public enum GPXCoder {
         let links: [GPXLink] = extractLinks(from: props)
         let extensions: [String: [String: Sendable]] = extractExtensions(from: props)
 
-        let points = lineString.coordinates.map { coord in
-            GPXWaypoint(
+        // Per-rtept parallel arrays (aligned to coordinate indices). Each
+        // array is optional and may be shorter than the coordinate list;
+        // out-of-range or missing entries yield nil/empty values.
+        let routeTimes = props["gpx_route_times"] as? [Double?]
+        let routeNames = props["gpx_route_names"] as? [String?]
+        let routeComments = props["gpx_route_comments"] as? [String?]
+        let routeDescriptions = props["gpx_route_descriptions"] as? [String?]
+        let routeSources = props["gpx_route_sources"] as? [String?]
+        let routeSymbols = props["gpx_route_symbols"] as? [String?]
+        let routeTypes = props["gpx_route_types"] as? [String?]
+        let routeLinks = props["gpx_route_links"] as? [[[String: String]]]
+        let routeExtensions = props["gpx_route_extensions"] as? [[String: Sendable]]
+
+        let points = lineString.coordinates.enumerated().map { idx, coord -> GPXWaypoint in
+            // Extensions
+            var pointExtensions: [String: [String: Sendable]] = [:]
+            if let arr = routeExtensions, idx < arr.count, !arr[idx].isEmpty {
+                for (prefix, value) in arr[idx] {
+                    if let nsDict = value as? [String: Sendable] {
+                        pointExtensions[prefix] = nsDict
+                    }
+                }
+            }
+
+            // Links
+            var pointLinks: [GPXLink] = []
+            if let arr = routeLinks, idx < arr.count, !arr[idx].isEmpty {
+                pointLinks = arr[idx].compactMap { dictLink($0) }
+            }
+
+            return GPXWaypoint(
                 latitude: coord.latitude,
                 longitude: coord.longitude,
-                elevation: coord.altitude)
+                elevation: coord.altitude,
+                time: routeTimes.flatMap { idx < $0.count ? $0[idx] : nil }
+                    .map { Date(timeIntervalSinceReferenceDate: $0) },
+                name: routeNames.flatMap { idx < $0.count ? $0[idx] : nil },
+                comment: routeComments.flatMap { idx < $0.count ? $0[idx] : nil },
+                description: routeDescriptions.flatMap { idx < $0.count ? $0[idx] : nil },
+                source: routeSources.flatMap { idx < $0.count ? $0[idx] : nil },
+                links: pointLinks,
+                symbol: routeSymbols.flatMap { idx < $0.count ? $0[idx] : nil },
+                type: routeTypes.flatMap { idx < $0.count ? $0[idx] : nil },
+                extensions: pointExtensions)
         }
 
         return GPXRoute(
@@ -319,11 +402,19 @@ public enum GPXCoder {
         }
 
         // Accumulate per-point sensor arrays from track segment waypoints
-        // Arrays are aligned to coordinate index — missing values are nil
+        // Arrays are aligned to coordinate index — missing values are nil.
+        //
+        // `course` and `speed` come from two sources:
+        //   - GPX 1.1 gpxtpx TrackPointExtension v2 (`<gpxtpx:course>`, `<gpxtpx:speed>`)
+        //   - GPX 1.0 flat track-point elements (`<course>`, `<speed>`)
+        // The gpxtpx value wins when both are present (it is the newer spec);
+        // otherwise the GPX 1.0 flat value is used. On write, both are emitted
+        // as gpxtpx extensions (we always write GPX 1.1), upgrading 1.0 data.
         var heartRates: [Int?] = []
         var cadences: [Int?] = []
         var powers: [Int?] = []
-        var gpxSpeeds: [Double?] = []
+        var speeds: [Double?] = []
+        var courses: [Double?] = []
         var temperatures: [Double?] = []
         var elevations: [Double?] = []
         var times: [Double?] = []  // TimeInterval since reference date
@@ -338,8 +429,9 @@ public enum GPXCoder {
                 heartRates.append(ext?["hr"] as? Int)
                 cadences.append(ext?["cad"] as? Int)
                 powers.append(ext?["power"] as? Int)
-                gpxSpeeds.append(ext?["speed"] as? Double)
-                temperatures.append(ext?["atemp"] as? Double)
+                speeds.append(extensionDouble(ext, "speed") ?? wp.speed)
+                courses.append(extensionDouble(ext, "course") ?? wp.course)
+                temperatures.append(extensionDouble(ext, "atemp"))
             }
         }
 
@@ -347,7 +439,8 @@ public enum GPXCoder {
         if heartRates.contains(where: { $0 != nil }) { feature.properties["gpx_heart_rates"] = heartRates }
         if cadences.contains(where: { $0 != nil }) { feature.properties["gpx_cadences"] = cadences }
         if powers.contains(where: { $0 != nil }) { feature.properties["gpx_powers"] = powers }
-        if gpxSpeeds.contains(where: { $0 != nil }) { feature.properties["gpx_speeds"] = gpxSpeeds }
+        if speeds.contains(where: { $0 != nil }) { feature.properties["gpx_speeds"] = speeds }
+        if courses.contains(where: { $0 != nil }) { feature.properties["gpx_courses"] = courses }
         if temperatures.contains(where: { $0 != nil }) { feature.properties["gpx_air_temperatures"] = temperatures }
         if elevations.contains(where: { $0 != nil }) { feature.properties["gpx_elevations"] = elevations }
         if times.contains(where: { $0 != nil }) { feature.properties["gpx_times"] = times }
@@ -363,12 +456,40 @@ public enum GPXCoder {
         let links: [GPXLink] = extractLinks(from: props)
         let extensions: [String: [String: Sendable]] = extractExtensions(from: props)
 
+        let times = props["gpx_times"] as? [Double?]
+        let heartRates = props["gpx_heart_rates"] as? [Int?]
+        let cadences = props["gpx_cadences"] as? [Int?]
+        let powers = props["gpx_powers"] as? [Int?]
+        let speeds = props["gpx_speeds"] as? [Double?]
+        let courses = props["gpx_courses"] as? [Double?]
+        let temperatures = props["gpx_air_temperatures"] as? [Double?]
+
+        var pointIndex = 0
         let segments = multiLine.lineStrings.map { lineString in
-            lineString.coordinates.map { coord in
-                GPXWaypoint(
+            lineString.coordinates.map { coord -> GPXWaypoint in
+                let idx = pointIndex
+                pointIndex += 1
+
+                let time = times.flatMap { idx < $0.count ? $0[idx] : nil }
+                    .map { Date(timeIntervalSinceReferenceDate: $0) }
+
+                var gpxtpx: [String: Sendable] = [:]
+                if let arr = heartRates, idx < arr.count, let v = arr[idx] { gpxtpx["hr"] = v }
+                if let arr = cadences, idx < arr.count, let v = arr[idx] { gpxtpx["cad"] = v }
+                if let arr = powers, idx < arr.count, let v = arr[idx] { gpxtpx["power"] = v }
+                if let arr = speeds, idx < arr.count, let v = arr[idx] { gpxtpx["speed"] = v }
+                if let arr = courses, idx < arr.count, let v = arr[idx] { gpxtpx["course"] = v }
+                if let arr = temperatures, idx < arr.count, let v = arr[idx] { gpxtpx["atemp"] = v }
+
+                var pointExtensions: [String: [String: Sendable]] = [:]
+                if !gpxtpx.isEmpty { pointExtensions["gpxtpx"] = gpxtpx }
+
+                return GPXWaypoint(
                     latitude: coord.latitude,
                     longitude: coord.longitude,
-                    elevation: coord.altitude)
+                    elevation: coord.altitude,
+                    time: time,
+                    extensions: pointExtensions)
             }
         }
 
@@ -460,7 +581,21 @@ public enum GPXCoder {
                 license: $0["license"] as? String)
         }
 
-        let links = extractLinks(from: members)
+        let links: [GPXLink]
+        if let linkData = members["gpx_link"] {
+            if let dicts = linkData as? [[String: String]] {
+                links = dicts.compactMap { dictLink($0) }
+            }
+            else if let dict = linkData as? [String: String] {
+                links = [dictLink(dict)].compactMap { $0 }
+            }
+            else {
+                links = []
+            }
+        }
+        else {
+            links = []
+        }
 
         return GPXMetadata(
             name: members["gpx_name"] as? String,
@@ -477,6 +612,18 @@ public enum GPXCoder {
 
     private static func stringProp(_ props: [String: Sendable], _ key: String) -> String? {
         props[key] as? String
+    }
+
+    /// Extracts a Double from an extension dict, tolerating Int values.
+    /// The parser's `inferExtensionValue` converts whole-number Doubles to
+    /// Int (e.g. `45.0` → `Int(45)`), so `as? Double` alone is unsafe for
+    /// numeric extension fields like `speed`, `course`, and `atemp`.
+    private static func extensionDouble(_ dict: [String: Sendable]?, _ key: String) -> Double? {
+        guard let val = dict?[key] else { return nil }
+        if let d = val as? Double { return d }
+        if let i = val as? Int { return Double(i) }
+        if let s = val as? String { return Double(s) }
+        return nil
     }
 
     private static func doubleProp(_ props: [String: Sendable], _ key: String) -> Double? {

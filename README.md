@@ -465,7 +465,6 @@ let city = (gpxx?["Address"] as? [String: Sendable])?["City"] as? String
 
 - GPX 1.0 is **read-only**; written files always use GPX 1.1. GPX 1.0 `<course>`/`<speed>` on `<trkpt>` are upgraded to `gpxtpx:course`/`gpxtpx:speed` extensions on write, so they round-trip correctly.
 - List-type extensions (Categories, PhoneNumber) use generic element names on write; exact child-element names may differ on round-trip
-- `Subclass` (hexBinary) is parsed but not exposed via the typed API
 
 ## Contributing
 

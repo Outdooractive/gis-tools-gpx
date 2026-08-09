@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="GISToolsGPX test">
+<gpx xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3"
+     version="1.1" creator="GISToolsGPX test">
   <rte>
     <name>Berlin City Walk</name>
     <cmt>A walking route through Berlin</cmt>
@@ -9,15 +11,28 @@
     <type>Walking</type>
     <rtept lat="52.518611" lon="13.376111">
       <ele>35.0</ele>
+      <time>2024-01-15T09:00:00.000Z</time>
       <name>Reichstag</name>
+      <cmt>Start of the walk</cmt>
+      <sym>Trailhead</sym>
+      <type>Landmark</type>
     </rtept>
     <rtept lat="52.516275" lon="13.377704">
       <ele>36.0</ele>
       <name>Brandenburg Gate</name>
+      <link href="https://example.com/gate">
+        <text>Gate info</text>
+      </link>
     </rtept>
     <rtept lat="52.513791" lon="13.378860">
       <ele>34.0</ele>
       <name>Holocaust Memorial</name>
+      <extensions>
+        <gpxx:RoutePointExtension>
+          <gpxx:rpt lat="52.514500" lon="13.378200"/>
+          <gpxx:rpt lat="52.514000" lon="13.378600"/>
+        </gpxx:RoutePointExtension>
+      </extensions>
     </rtept>
   </rte>
 </gpx>

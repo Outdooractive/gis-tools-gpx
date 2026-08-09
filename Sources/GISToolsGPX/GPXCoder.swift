@@ -402,11 +402,19 @@ public enum GPXCoder {
         }
 
         // Accumulate per-point sensor arrays from track segment waypoints
-        // Arrays are aligned to coordinate index — missing values are nil
+        // Arrays are aligned to coordinate index — missing values are nil.
+        //
+        // `course` and `speed` come from two sources:
+        //   - GPX 1.1 gpxtpx TrackPointExtension v2 (`<gpxtpx:course>`, `<gpxtpx:speed>`)
+        //   - GPX 1.0 flat track-point elements (`<course>`, `<speed>`)
+        // The gpxtpx value wins when both are present (it is the newer spec);
+        // otherwise the GPX 1.0 flat value is used. On write, both are emitted
+        // as gpxtpx extensions (we always write GPX 1.1), upgrading 1.0 data.
         var heartRates: [Int?] = []
         var cadences: [Int?] = []
         var powers: [Int?] = []
-        var gpxSpeeds: [Double?] = []
+        var speeds: [Double?] = []
+        var courses: [Double?] = []
         var temperatures: [Double?] = []
         var elevations: [Double?] = []
         var times: [Double?] = []  // TimeInterval since reference date
@@ -421,8 +429,9 @@ public enum GPXCoder {
                 heartRates.append(ext?["hr"] as? Int)
                 cadences.append(ext?["cad"] as? Int)
                 powers.append(ext?["power"] as? Int)
-                gpxSpeeds.append(ext?["speed"] as? Double)
-                temperatures.append(ext?["atemp"] as? Double)
+                speeds.append(extensionDouble(ext, "speed") ?? wp.speed)
+                courses.append(extensionDouble(ext, "course") ?? wp.course)
+                temperatures.append(extensionDouble(ext, "atemp"))
             }
         }
 
@@ -430,7 +439,8 @@ public enum GPXCoder {
         if heartRates.contains(where: { $0 != nil }) { feature.properties["gpx_heart_rates"] = heartRates }
         if cadences.contains(where: { $0 != nil }) { feature.properties["gpx_cadences"] = cadences }
         if powers.contains(where: { $0 != nil }) { feature.properties["gpx_powers"] = powers }
-        if gpxSpeeds.contains(where: { $0 != nil }) { feature.properties["gpx_speeds"] = gpxSpeeds }
+        if speeds.contains(where: { $0 != nil }) { feature.properties["gpx_speeds"] = speeds }
+        if courses.contains(where: { $0 != nil }) { feature.properties["gpx_courses"] = courses }
         if temperatures.contains(where: { $0 != nil }) { feature.properties["gpx_air_temperatures"] = temperatures }
         if elevations.contains(where: { $0 != nil }) { feature.properties["gpx_elevations"] = elevations }
         if times.contains(where: { $0 != nil }) { feature.properties["gpx_times"] = times }
@@ -451,6 +461,7 @@ public enum GPXCoder {
         let cadences = props["gpx_cadences"] as? [Int?]
         let powers = props["gpx_powers"] as? [Int?]
         let speeds = props["gpx_speeds"] as? [Double?]
+        let courses = props["gpx_courses"] as? [Double?]
         let temperatures = props["gpx_air_temperatures"] as? [Double?]
 
         var pointIndex = 0
@@ -467,6 +478,7 @@ public enum GPXCoder {
                 if let arr = cadences, idx < arr.count, let v = arr[idx] { gpxtpx["cad"] = v }
                 if let arr = powers, idx < arr.count, let v = arr[idx] { gpxtpx["power"] = v }
                 if let arr = speeds, idx < arr.count, let v = arr[idx] { gpxtpx["speed"] = v }
+                if let arr = courses, idx < arr.count, let v = arr[idx] { gpxtpx["course"] = v }
                 if let arr = temperatures, idx < arr.count, let v = arr[idx] { gpxtpx["atemp"] = v }
 
                 var pointExtensions: [String: [String: Sendable]] = [:]
@@ -600,6 +612,18 @@ public enum GPXCoder {
 
     private static func stringProp(_ props: [String: Sendable], _ key: String) -> String? {
         props[key] as? String
+    }
+
+    /// Extracts a Double from an extension dict, tolerating Int values.
+    /// The parser's `inferExtensionValue` converts whole-number Doubles to
+    /// Int (e.g. `45.0` → `Int(45)`), so `as? Double` alone is unsafe for
+    /// numeric extension fields like `speed`, `course`, and `atemp`.
+    private static func extensionDouble(_ dict: [String: Sendable]?, _ key: String) -> Double? {
+        guard let val = dict?[key] else { return nil }
+        if let d = val as? Double { return d }
+        if let i = val as? Int { return Double(i) }
+        if let s = val as? String { return Double(s) }
+        return nil
     }
 
     private static func doubleProp(_ props: [String: Sendable], _ key: String) -> Double? {

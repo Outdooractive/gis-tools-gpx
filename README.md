@@ -395,6 +395,7 @@ let city = (gpxx?["Address"] as? [String: Sendable])?["City"] as? String
 | `gpxCadences` | `[Int?]?` | gpxtpx `cad` (per-point array) |
 | `gpxPowers` | `[Int?]?` | gpxtpx `power` (per-point array) |
 | `gpxSpeeds` | `[Double?]?` | gpxtpx `speed` (per-point array) |
+| `gpxCourses` | `[Double?]?` | gpxtpx `course` (per-point array) |
 | `gpxAirTemperatures` | `[Double?]?` | gpxtpx `atemp` (per-point array) |
 | `gpxElevations` | `[Double?]?` | `<ele>` (per-point array) |
 | `gpxTimes` | `[Date?]?` | `<time>` (per-point array) |
@@ -462,9 +463,8 @@ let city = (gpxx?["Address"] as? [String: Sendable])?["City"] as? String
 
 ### Limitations
 
-- GPX 1.0 is **read-only**; written files always use GPX 1.1
+- GPX 1.0 is **read-only**; written files always use GPX 1.1. GPX 1.0 `<course>`/`<speed>` on `<trkpt>` are upgraded to `gpxtpx:course`/`gpxtpx:speed` extensions on write, so they round-trip correctly.
 - List-type extensions (Categories, PhoneNumber) use generic element names on write; exact child-element names may differ on round-trip
-- GPX 1.0 `<course>`/`<speed>` on `<trkpt>` are parsed onto the in-memory waypoint but are not accumulated into per-track-point arrays on the track Feature, so they don't survive a read → write round-trip (use GPX 1.1 `gpxtpx:course`/`gpxtpx:speed` extensions instead)
 - `Subclass` (hexBinary) is parsed but not exposed via the typed API
 
 ## Contributing

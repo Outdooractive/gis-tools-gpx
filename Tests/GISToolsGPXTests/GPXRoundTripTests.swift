@@ -193,8 +193,9 @@ struct GPXRoundTripTests {
         #expect((relTrack?.properties["gpx_cadences"] as? [Int?]) == [85, 90, 95])
         #expect((relTrack?.properties["gpx_speeds"] as? [Double?]) == [nil, nil, 12.5])
         #expect((relTrack?.properties["gpx_air_temperatures"] as? [Double?]) == [nil, 18.5, nil])
-        // No power data in fixture
+        // No power or course data in this fixture
         #expect(relTrack?.properties["gpx_powers"] == nil)
+        #expect(relTrack?.properties["gpx_courses"] == nil)
     }
 
     // MARK: - Metadata round-trip
@@ -276,7 +277,7 @@ struct GPXRoundTripTests {
         #expect(reloaded.foreignMembers["gpx_name"] as? String == "Complete Test GPX")
     }
 
-    // MARK: - GPX 1.0 round-trip (best-effort)
+    // MARK: - GPX 1.0 round-trip (course/speed upgraded to gpxtpx)
 
     @Test
     func readGPX10TrackCourseSpeed() async throws {
@@ -289,6 +290,19 @@ struct GPXRoundTripTests {
         #expect(tracks.count == 1)
         #expect(tracks[0].properties["name"] as? String == "Track with course/speed")
 
+        // GPX 1.0 flat <course>/<speed> are accumulated into track arrays,
+        // alongside any gpxtpx values (none in this 1.0 fixture).
+        let course = tracks[0].properties["gpx_courses"] as? [Double?]
+        let speed = tracks[0].properties["gpx_speeds"] as? [Double?]
+        #expect(course?.count == 3)
+        #expect(speed?.count == 3)
+        #expect(course?[0] == 45.0)
+        #expect(course?[1] == 90.0)
+        #expect(course?[2] == 135.0)
+        #expect(speed?[0] == 5.5)
+        #expect(speed?[1] == 8.2)
+        #expect(speed?[2] == 6.1)
+
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("roundtrip_gpx10_\(UUID().uuidString).gpx")
         defer { try? FileManager.default.removeItem(at: tempURL) }
@@ -296,6 +310,15 @@ struct GPXRoundTripTests {
         try fc.writeGPX(to: tempURL)
         let reloaded = try #require(FeatureCollection(gpx: tempURL))
         #expect(reloaded.features.count >= 1)
+
+        // After round-trip, course/speed reappear as gpxtpx extensions
+        // (the output is GPX 1.1), so the arrays should match exactly.
+        let relTrack = reloaded.features.first {
+            ($0.properties["gpx_type"] as? String) == "trk"
+        }
+        #expect(relTrack != nil)
+        #expect(relTrack?.properties["gpx_courses"] as? [Double?] == course)
+        #expect(relTrack?.properties["gpx_speeds"] as? [Double?] == speed)
     }
 
     // MARK: - Structured extension round-trip

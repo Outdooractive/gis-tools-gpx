@@ -348,6 +348,13 @@ extension Feature {
         set { properties["gpx_speeds"] = newValue }
     }
 
+    /// Course over ground per track point (degrees true).
+    /// Sourced from `gpxtpx:course` or GPX 1.0 flat `<course>`.
+    public var gpxCourses: [Double?]? {
+        get { properties["gpx_courses"] as? [Double?] }
+        set { properties["gpx_courses"] = newValue }
+    }
+
     /// Air temperature per track point (Celsius).
     public var gpxAirTemperatures: [Double?]? {
         get { properties["gpx_air_temperatures"] as? [Double?] }

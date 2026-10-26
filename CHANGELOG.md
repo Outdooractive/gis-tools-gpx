@@ -22,6 +22,8 @@ All notable changes to this project are documented in this file.
 - CI coverage artifacts and a Linux test job; documentation build validation.
 
 ### Fixed
+- Mismatched XML closing tags are now rejected consistently, including on
+  Linux toolchains whose XMLParser accepts them.
 
 - Writer: route and track `<extensions>` now precede route points and track
   segments, matching the GPX 1.1 schema order.

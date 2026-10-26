@@ -263,9 +263,16 @@ enum GPXParser {
         ) {
             let localName = normalizedElementName(elementName)
 
-            if pathStack.last == localName {
-                pathStack.removeLast()
+            // XMLParser on some Linux toolchains accepts mismatched closing
+            // tags. Validate the element stack ourselves so malformed XML is
+            // rejected consistently on every platform.
+            guard pathStack.last == localName else {
+                parseError = GPXError.invalidXML(
+                    detail: "Mismatched closing element '<\(elementName)>'")
+                parser.abortParsing()
+                return
             }
+            pathStack.removeLast()
 
             if localName == "extensions" {
                 extensionStackCount = max(0, extensionStackCount - 1)

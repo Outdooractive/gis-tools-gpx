@@ -10,7 +10,7 @@ extension Feature {
     /// The kind of GPX element this Feature represents.
     ///
     /// When set, the underlying `properties` dictionary is updated with
-    /// the ``gpxType`` key so that subsequent ``FeatureCollection/writeGPX(to:creator:)``
+    /// the ``gpxType`` key so that subsequent `FeatureCollection.writeGPX(to:creator:)`
     /// calls can reconstruct the correct GPX element.
     public var gpxType: GPXElementType? {
         get {
@@ -97,9 +97,60 @@ extension Feature {
         set { properties["pdop"] = newValue }
     }
 
+    /// Magnetic variation in degrees (`<magvar>`).
+    public var gpxMagneticVariation: Double? {
+        get { doubleProp("magvar") }
+        set { properties["magvar"] = newValue }
+    }
+
+    /// Height of the geoid above the WGS84 ellipsoid (`<geoidheight>`).
+    public var gpxGeoidHeight: Double? {
+        get { doubleProp("geoidheight") }
+        set { properties["geoidheight"] = newValue }
+    }
+
+    /// Age of the differential GPS data in seconds (`<ageofdgpsdata>`).
+    public var gpxAgeOfDGPSData: Double? {
+        get { doubleProp("ageofdgpsdata") }
+        set { properties["ageofdgpsdata"] = newValue }
+    }
+
+    /// Differential GPS station identifier (`<dgpsid>`).
+    public var gpxDGPSID: Int? {
+        get { intProp("dgpsid") }
+        set { properties["dgpsid"] = newValue }
+    }
+
+    /// Elevation in meters (`<ele>`).
+    ///
+    /// The value is stored on the geometry's coordinate. For non-Point
+    /// features the `ele` property is used as a fallback.
+    public var gpxElevation: Double? {
+        get {
+            (geometry as? Point)?.coordinate.altitude
+                ?? doubleProp("ele")
+        }
+        set {
+            if let point = geometry as? Point {
+                let foreign = foreignMembers
+                let wantsBoundingBox = boundingBox != nil
+                var coordinate = point.coordinate
+                coordinate.altitude = newValue
+                self = Feature(
+                    Point(coordinate),
+                    id: id,
+                    properties: properties,
+                    calculateBoundingBox: wantsBoundingBox)
+                self.foreignMembers = foreign
+            }
+            properties["ele"] = newValue
+        }
+    }
+
     /// Timestamp (`<time>`). ISO 8601 UTC.
     public var gpxTime: Date? {
         get {
+            if let date = properties["time"] as? Date { return date }
             guard let s = properties["time"] as? String else { return nil }
             return GPXDateFormatter.parse(s)
         }
@@ -361,6 +412,24 @@ extension Feature {
         set { properties["gpx_air_temperatures"] = newValue }
     }
 
+    /// Water temperature per track point (Celsius).
+    public var gpxWaterTemperatures: [Double?]? {
+        get { properties["gpx_water_temperatures"] as? [Double?] }
+        set { properties["gpx_water_temperatures"] = newValue }
+    }
+
+    /// Water depth per track point (meters).
+    public var gpxDepths: [Double?]? {
+        get { properties["gpx_depths"] as? [Double?] }
+        set { properties["gpx_depths"] = newValue }
+    }
+
+    /// Bearing per track point (degrees true).
+    public var gpxBearings: [Double?]? {
+        get { properties["gpx_bearings"] as? [Double?] }
+        set { properties["gpx_bearings"] = newValue }
+    }
+
     /// Elevation per track point (meters).
     public var gpxElevations: [Double?]? {
         get { properties["gpx_elevations"] as? [Double?] }
@@ -375,6 +444,131 @@ extension Feature {
         }
         set {
             properties["gpx_times"] = newValue?.map { $0?.timeIntervalSinceReferenceDate }
+        }
+    }
+
+    /// Names per track point (`<trkpt><name>`).
+    public var gpxTrackNames: [String?]? {
+        get { properties["gpx_track_names"] as? [String?] }
+        set { properties["gpx_track_names"] = newValue }
+    }
+
+    /// Comments per track point (`<trkpt><cmt>`).
+    public var gpxTrackComments: [String?]? {
+        get { properties["gpx_track_comments"] as? [String?] }
+        set { properties["gpx_track_comments"] = newValue }
+    }
+
+    /// Descriptions per track point (`<trkpt><desc>`).
+    public var gpxTrackDescriptions: [String?]? {
+        get { properties["gpx_track_descriptions"] as? [String?] }
+        set { properties["gpx_track_descriptions"] = newValue }
+    }
+
+    /// Sources per track point (`<trkpt><src>`).
+    public var gpxTrackSources: [String?]? {
+        get { properties["gpx_track_sources"] as? [String?] }
+        set { properties["gpx_track_sources"] = newValue }
+    }
+
+    /// Symbols per track point (`<trkpt><sym>`).
+    public var gpxTrackSymbols: [String?]? {
+        get { properties["gpx_track_symbols"] as? [String?] }
+        set { properties["gpx_track_symbols"] = newValue }
+    }
+
+    /// Type classifications per track point (`<trkpt><type>`).
+    public var gpxTrackTypes: [String?]? {
+        get { properties["gpx_track_types"] as? [String?] }
+        set { properties["gpx_track_types"] = newValue }
+    }
+
+    /// Links per track point — one inner array per `<trkpt>`.
+    public var gpxTrackLinks: [[GPXLink]?]? {
+        get {
+            guard let raw = properties["gpx_track_links"] as? [[[String: String]]] else { return nil }
+            return raw.map { linkDicts -> [GPXLink]? in
+                let parsed = linkDicts.compactMap { dict -> GPXLink? in
+                    guard let href = dict["href"] else { return nil }
+                    return GPXLink(href: href, text: dict["text"], type: dict["type"])
+                }
+                return parsed.isEmpty ? nil : parsed
+            }
+        }
+        set {
+            guard let arr = newValue else {
+                properties["gpx_track_links"] = nil
+                return
+            }
+            let dicts: [[[String: String]]] = arr.map { links -> [[String: String]] in
+                guard let links else { return [] }
+                return links.map { link in
+                    var d: [String: String] = ["href": link.href]
+                    if let t = link.text { d["text"] = t }
+                    if let tp = link.type { d["type"] = tp }
+                    return d
+                }
+            }
+            properties["gpx_track_links"] = dicts.contains(where: { !$0.isEmpty }) ? dicts : nil
+        }
+    }
+
+    /// Verbatim per-track-point extensions that are not projected into the
+    /// typed sensor arrays. Each entry maps a namespace prefix to its raw
+    /// child elements.
+    public var gpxTrackPointExtensions: [[String: [String: Sendable]]?]? {
+        get {
+            guard let raw = properties["gpx_track_point_extensions"] as? [[String: Sendable]] else {
+                return nil
+            }
+            return raw.map { dict -> [String: [String: Sendable]]? in
+                var result: [String: [String: Sendable]] = [:]
+                for (prefix, value) in dict {
+                    if let namespace = value as? [String: Sendable] {
+                        result[prefix] = namespace
+                    }
+                }
+                return result.isEmpty ? nil : result
+            }
+        }
+        set {
+            guard let arr = newValue else {
+                properties["gpx_track_point_extensions"] = nil
+                return
+            }
+            let dicts: [[String: Sendable]] = arr.map { ext -> [String: Sendable] in
+                guard let ext else { return [:] }
+                var d: [String: Sendable] = [:]
+                for (prefix, namespace) in ext {
+                    d[prefix] = namespace as Sendable
+                }
+                return d
+            }
+            properties["gpx_track_point_extensions"] = dicts.contains(where: { !$0.isEmpty })
+                ? dicts
+                : nil
+        }
+    }
+
+    /// Verbatim per-track-point GNSS quality fields (`<fix>`, `<sat>`,
+    /// `<hdop>`, `<vdop>`, `<pdop>`, `<magvar>`, `<geoidheight>`,
+    /// `<ageofdgpsdata>`, `<dgpsid>`) that have no dedicated array accessor.
+    public var gpxTrackPointQuality: [[String: Sendable]?]? {
+        get {
+            guard let raw = properties["gpx_track_point_quality"] as? [[String: Sendable]] else {
+                return nil
+            }
+            return raw.map { $0.isEmpty ? nil : $0 }
+        }
+        set {
+            guard let arr = newValue else {
+                properties["gpx_track_point_quality"] = nil
+                return
+            }
+            let dicts: [[String: Sendable]] = arr.map { $0 ?? [:] }
+            properties["gpx_track_point_quality"] = dicts.contains(where: { !$0.isEmpty })
+                ? dicts
+                : nil
         }
     }
 
@@ -506,42 +700,124 @@ extension Feature {
         let cad = gpxCadences ?? []
         let pw = gpxPowers ?? []
         let spd = gpxSpeeds ?? []
+        let crs = gpxCourses ?? []
         let tmp = gpxAirTemperatures ?? []
+        let wtmp = gpxWaterTemperatures ?? []
+        let dep = gpxDepths ?? []
+        let brg = gpxBearings ?? []
         let elev = gpxElevations ?? []
-        let ts = (properties["gpx_times"] as? [Double?] ?? []).map { $0.map { Date(timeIntervalSinceReferenceDate: $0) } }
+        let ts = gpxTimes ?? []
+
+        let names = gpxTrackNames ?? []
+        let comments = gpxTrackComments ?? []
+        let descriptions = gpxTrackDescriptions ?? []
+        let sources = gpxTrackSources ?? []
+        let symbols = gpxTrackSymbols ?? []
+        let types = gpxTrackTypes ?? []
+        let links = gpxTrackLinks ?? []
+        let rawExtensions = properties["gpx_track_point_extensions"] as? [[String: Sendable]] ?? []
+        let quality = properties["gpx_track_point_quality"] as? [[String: Sendable]] ?? []
 
         var features: [Feature] = []
-        for i in 0..<coords.count {
-            var f = Feature(Point(coords[i]))
-            f.properties["gpx_type"] = "wpt"
-            // Build gpxtpx extensions for round-trip preservation
-            var gpxtpx: [String: Sendable] = [:]
-            if i < hr.count, let v = hr[i] { gpxtpx["hr"] = v }
-            if i < cad.count, let v = cad[i] { gpxtpx["cad"] = v }
-            if i < pw.count, let v = pw[i] { gpxtpx["power"] = v }
-            if i < spd.count, let v = spd[i] { gpxtpx["speed"] = v }
-            if i < tmp.count, let v = tmp[i] { gpxtpx["atemp"] = v }
-            if i < ts.count, let v = ts[i] { f.properties["time"] = v }
-            if i < elev.count, let v = elev[i] { f.properties["ele"] = v }
-            if !gpxtpx.isEmpty {
-                var ext = f.properties["extensions"] as? [String: Sendable] ?? [:]
-                ext["gpxtpx"] = gpxtpx
-                f.properties["extensions"] = ext
+        for i in coords.indices {
+            var coordinate = coords[i]
+            if let elevation = optionalArrayValue(elev, at: i) {
+                coordinate.altitude = elevation
             }
+
+            var f = Feature(Point(coordinate))
+            f.gpxType = .waypoint
+
+            f.gpxName = optionalArrayValue(names, at: i)
+            f.gpxComment = optionalArrayValue(comments, at: i)
+            f.gpxDescription = optionalArrayValue(descriptions, at: i)
+            f.gpxSource = optionalArrayValue(sources, at: i)
+            f.gpxSymbol = optionalArrayValue(symbols, at: i)
+            f.gpxTypeName = optionalArrayValue(types, at: i)
+            if let pointLinks = optionalArrayValue(links, at: i) {
+                f.gpxLinks = pointLinks
+            }
+
+            var extensions: [String: Sendable] = [:]
+            if rawExtensions.indices.contains(i) {
+                extensions = rawExtensions[i]
+            }
+
+            // Typed sensor values overlay any raw vendor extension data.
+            var gpxtpx = extensions["gpxtpx"] as? [String: Sendable] ?? [:]
+            if let v = optionalArrayValue(hr, at: i) { gpxtpx["hr"] = v }
+            if let v = optionalArrayValue(cad, at: i) { gpxtpx["cad"] = v }
+            if let v = optionalArrayValue(pw, at: i) { gpxtpx["power"] = v }
+            if let v = optionalArrayValue(spd, at: i) { gpxtpx["speed"] = v }
+            if let v = optionalArrayValue(crs, at: i) { gpxtpx["course"] = v }
+            if let v = optionalArrayValue(tmp, at: i) { gpxtpx["atemp"] = v }
+            if let v = optionalArrayValue(wtmp, at: i) { gpxtpx["wtemp"] = v }
+            if let v = optionalArrayValue(dep, at: i) { gpxtpx["depth"] = v }
+            if let v = optionalArrayValue(brg, at: i) { gpxtpx["bearing"] = v }
+            if !gpxtpx.isEmpty {
+                extensions["gpxtpx"] = gpxtpx
+            }
+            if !extensions.isEmpty {
+                f.properties["extensions"] = extensions
+            }
+
+            if let time = optionalArrayValue(ts, at: i) {
+                f.gpxTime = time
+            }
+            if let elevation = optionalArrayValue(elev, at: i) {
+                f.properties["ele"] = elevation
+            }
+            if quality.indices.contains(i) {
+                let fields = quality[i]
+                if let value = fields["magvar"] as? Double { f.gpxMagneticVariation = value }
+                if let value = fields["geoidheight"] as? Double { f.gpxGeoidHeight = value }
+                if let value = fields["fix"] as? String {
+                    f.gpxFix = GPSFixType(rawValue: value)
+                }
+                if let value = fields["sat"] as? Int { f.gpxSatellites = value }
+                if let value = fields["hdop"] as? Double { f.gpxHDOP = value }
+                if let value = fields["vdop"] as? Double { f.gpxVDOP = value }
+                if let value = fields["pdop"] as? Double { f.gpxPDOP = value }
+                if let value = fields["ageofdgpsdata"] as? Double {
+                    f.gpxAgeOfDGPSData = value
+                }
+                if let value = fields["dgpsid"] as? Int { f.gpxDGPSID = value }
+            }
+
             features.append(f)
         }
         return FeatureCollection(features)
     }
 
     /// Point features within a time window.
+    ///
+    /// Returns an empty collection when the track has no timestamps.
     public func gpxPointFeatures(from startDate: Date, to endDate: Date) -> FeatureCollection {
-        guard let ts = properties["gpx_times"] as? [Double] else {
-            return gpxPointFeatures()
-        }
+        guard let ts = gpxTimeIntervals else { return FeatureCollection() }
         let start = startDate.timeIntervalSinceReferenceDate
         let end = endDate.timeIntervalSinceReferenceDate
-        let indices = ts.indices.filter { ts[$0] >= start && ts[$0] <= end }
+        let indices = ts.indices.filter { index in
+            guard let time = ts[index] else { return false }
+            return time >= start && time <= end
+        }
         return gpxSliceFeatures(at: indices)
+    }
+
+    /// Timestamps as TimeIntervals, tolerating both `[Double?]` and `[Double]`
+    /// storage (the typed setter writes the former).
+    private var gpxTimeIntervals: [Double?]? {
+        if let values = properties["gpx_times"] as? [Double?] {
+            return values
+        }
+        if let values = properties["gpx_times"] as? [Double] {
+            return values.map(Optional.some)
+        }
+        return nil
+    }
+
+    private func optionalArrayValue<T>(_ values: [T?], at index: Int) -> T? {
+        guard values.indices.contains(index) else { return nil }
+        return values[index]
     }
 
     /// Point features within a fractional window.
@@ -561,10 +837,10 @@ extension Feature {
         return gpxSliceFeatures(at: indices)
     }
 
-    /// Creates a track ``Feature`` from a collection of Point features
+    /// Creates a track `Feature` from a collection of Point features
     /// produced by ``gpxPointFeatures()``.
     ///
-    /// See ``FeatureCollection/gpxTrackFromPointFeatures()``.
+    /// See `FeatureCollection.gpxTrackFromPointFeatures()`.
     public init?(gpxTrackFrom pointFeatures: FeatureCollection) {
         guard let track = pointFeatures.gpxTrackFromPointFeatures() else { return nil }
         self = track

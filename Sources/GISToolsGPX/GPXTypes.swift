@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - GPX Element Type
 
-/// Identifies whether a ``Feature`` originated from a GPX waypoint,
+/// Identifies whether a `Feature` originated from a GPX waypoint,
 /// route, or track element.
 public enum GPXElementType: String, Equatable, Sendable {
 

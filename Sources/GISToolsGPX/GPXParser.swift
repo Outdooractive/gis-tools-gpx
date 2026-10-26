@@ -11,9 +11,14 @@ extension GPXParser {
     /// Parses a GPX file from a URL and returns the intermediate model.
     ///
     /// - Parameter url: The URL of the GPX file.
-    /// - Returns: A ``GPXFile`` containing the parsed data.
+    /// - Returns: A `GPXFile` containing the parsed data.
     /// - Throws: ``GPXError`` if parsing fails.
     static func parse(url: URL) throws -> GPXFile {
+        if url.isFileURL,
+           !FileManager.default.isReadableFile(atPath: url.path)
+        {
+            throw GPXError.fileReadError(detail: "Could not read file at \(url.path)")
+        }
         guard let parser = XMLParser(contentsOf: url) else {
             throw GPXError.fileReadError(detail: "Could not open file at \(url.path)")
         }
@@ -23,7 +28,7 @@ extension GPXParser {
     /// Parses a GPX file from a string and returns the intermediate model.
     ///
     /// - Parameter string: The GPX XML string.
-    /// - Returns: A ``GPXFile`` containing the parsed data.
+    /// - Returns: A `GPXFile` containing the parsed data.
     /// - Throws: ``GPXError`` if parsing fails.
     static func parse(string: String) throws -> GPXFile {
         guard let data = string.data(using: .utf8) else {
@@ -36,7 +41,7 @@ extension GPXParser {
     /// Parses a GPX file from data and returns the intermediate model.
     ///
     /// - Parameter data: The GPX XML data.
-    /// - Returns: A ``GPXFile`` containing the parsed data.
+    /// - Returns: A `GPXFile` containing the parsed data.
     /// - Throws: ``GPXError`` if parsing fails.
     static func parse(data: Data) throws -> GPXFile {
         let parser = XMLParser(data: data)
@@ -50,7 +55,15 @@ extension GPXParser {
         parser.delegate = delegate
         parser.shouldProcessNamespaces = false
 
-        guard parser.parse() else {
+        let parsed = parser.parse()
+
+        // Coordinate/version validation aborts the parser early; prefer the
+        // specific error recorded by the delegate over XMLParser's generic one.
+        if let error = delegate.parseError {
+            throw error
+        }
+
+        guard parsed else {
             if let error = parser.parserError {
                 throw GPXError.invalidXML(detail: error.localizedDescription)
             }
@@ -69,7 +82,7 @@ extension GPXParser {
 // MARK: - XMLParser Delegate
 
 /// The namespace for the GPX parser. No public API exposed directly;
-/// use ``GPXParser`` static methods.
+/// use `GPXParser` static methods.
 enum GPXParser {
 
     /// Internal delegate for `XMLParser`. Not intended for external use.
@@ -79,12 +92,27 @@ enum GPXParser {
 
         var gpxFile: GPXFile?
 
+        /// A specific parse error discovered by the delegate. The delegate
+        /// aborts XML parsing after setting this.
+        var parseError: GPXError?
+
         private var metadata: GPXMetadata?
+        private var metadataLinks: [GPXLink] = []
 
         // GPX version from root element
         private var gpxVersion: String?
         private var isGPX10: Bool = false
         private var gpx10LinkURL: String?
+        private var sawRootElement: Bool = false
+
+        // Prefix → namespace URI declarations seen anywhere in the document.
+        // Used to recognize Garmin extensions that use a non-standard prefix.
+        private var declaredNamespaces: [String: String] = [:]
+
+        private static let gpxNamespaceURIs: Set<String> = [
+            "http://www.topografix.com/GPX/1/1",
+            "http://www.topografix.com/GPX/1/0",
+        ]
 
         // Accumulated characters for the current text node
         private var currentCharacters: String = ""
@@ -118,6 +146,16 @@ enum GPXParser {
 
         private var currentLink: GPXLink?
         private var inLink: Bool = false
+        private var currentLinkOwner: LinkOwner = .unknown
+
+        private enum LinkOwner {
+            case metadata
+            case author
+            case waypoint
+            case route
+            case track
+            case unknown
+        }
 
         private var currentPerson: GPXPerson?
         private var inAuthor: Bool = false
@@ -142,6 +180,7 @@ enum GPXParser {
 
         // Parent context save/restore
         private var savedParentExtensions: [String: [String: Sendable]]? = nil
+        private var savedParentLinks: [GPXLink]? = nil
 
         // MARK: - XMLParserDelegate
 
@@ -152,15 +191,26 @@ enum GPXParser {
             qualifiedName qName: String?,
             attributes attributeDict: [String: String] = [:]
         ) {
-            let localName = elementName.lowercased()
+            recordNamespaces(attributeDict)
+            let localName = normalizedElementName(elementName)
             currentCharacters = ""
             pathStack.append(localName)
+
+            if pathStack.count == 1 {
+                sawRootElement = true
+                if localName != "gpx" {
+                    parseError = GPXError.invalidGPX(
+                        detail: "Root element is '<\(elementName)>', expected '<gpx>'")
+                    parser.abortParsing()
+                    return
+                }
+            }
 
             let inExtension = extensionStackCount > 0
 
             if localName == "extensions" {
                 extensionStackCount += 1
-                currentExtensions = [:]
+                resetStructuredState()
                 return
             }
 
@@ -176,6 +226,8 @@ enum GPXParser {
             switch localName {
             case "gpx":
                 handleGPXStart(attributeDict)
+            case "metadata":
+                handleMetadataStart()
             case "wpt", "rtept", "trkpt":
                 handleWaypointStart(localName, attributeDict)
             case "rte":
@@ -197,6 +249,10 @@ enum GPXParser {
             default:
                 break
             }
+
+            if parseError != nil {
+                parser.abortParsing()
+            }
         }
 
         func parser(
@@ -205,14 +261,17 @@ enum GPXParser {
             namespaceURI: String?,
             qualifiedName qName: String?
         ) {
-            let localName = elementName.lowercased()
+            let localName = normalizedElementName(elementName)
 
             if pathStack.last == localName {
                 pathStack.removeLast()
             }
 
             if localName == "extensions" {
-                extensionStackCount -= 1
+                extensionStackCount = max(0, extensionStackCount - 1)
+                if extensionStackCount == 0 {
+                    resetStructuredState()
+                }
                 return
             }
 
@@ -226,6 +285,8 @@ enum GPXParser {
             switch localName {
             case "gpx":
                 handleGPXEnd()
+            case "metadata":
+                handleMetadataEnd()
             case "wpt", "rtept", "trkpt":
                 handleWaypointEnd(localName)
             case "rte":
@@ -237,7 +298,7 @@ enum GPXParser {
             case "link":
                 handleLinkEnd(chars)
             case "author":
-                handleAuthorEnd()
+                handleAuthorEnd(chars)
             case "copyright":
                 handleCopyrightEnd(chars)
             case "bounds":
@@ -254,19 +315,62 @@ enum GPXParser {
             currentCharacters += string
         }
 
+        func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+            currentCharacters += String(data: CDATABlock, encoding: .utf8)
+                ?? String(data: CDATABlock, encoding: .isoLatin1)
+                ?? ""
+        }
+
         // MARK: - Element handlers
+
+        private func recordNamespaces(_ attrs: [String: String]) {
+            for (key, value) in attrs {
+                let lower = key.lowercased()
+                guard lower.hasPrefix("xmlns:") else { continue }
+                let prefix = String(lower.dropFirst("xmlns:".count))
+                declaredNamespaces[prefix] = value
+            }
+        }
+
+        /// Strips a namespace prefix when it is bound to a GPX namespace, so
+        /// documents using `<gpx:wpt>` are parsed like default-namespace GPX.
+        private func normalizedElementName(_ name: String) -> String {
+            let parts = name.components(separatedBy: ":")
+            guard parts.count == 2 else { return name.lowercased() }
+
+            let prefix = parts[0].lowercased()
+            guard let uri = declaredNamespaces[prefix],
+                  Self.gpxNamespaceURIs.contains(uri)
+            else {
+                return name.lowercased()
+            }
+            return parts[1].lowercased()
+        }
 
         private func handleGPXStart(_ attrs: [String: String]) {
             gpxVersion = attrs["version"]
             isGPX10 = (gpxVersion == "1.0")
             metadata = nil
+            metadataLinks = []
+            gpx10LinkURL = nil
             fileWaypoints = []
             fileRoutes = []
             fileTracks = []
+
+            guard let version = gpxVersion else {
+                parseError = GPXError.invalidGPX(
+                    detail: "Missing required 'version' attribute on <gpx>")
+                return
+            }
+
+            guard version == "1.1" || version == "1.0" else {
+                parseError = GPXError.unsupportedVersion(version: version)
+                return
+            }
         }
 
         private func handleGPXEnd() {
-            guard let version = gpxVersion,
+            guard sawRootElement, let version = gpxVersion,
                   (version == "1.1" || version == "1.0")
             else { return }
             gpxFile = GPXFile(
@@ -276,23 +380,71 @@ enum GPXParser {
                 tracks: fileTracks)
         }
 
+        private func handleMetadataStart() {
+            metadata = GPXMetadata()
+            metadataLinks = []
+            gpx10LinkURL = nil
+        }
+
+        private func handleMetadataEnd() {
+            flushGPX10Link(into: &metadataLinks)
+
+            var meta = metadata ?? GPXMetadata()
+            meta.links = metadataLinks
+            metadata = meta
+
+            if meta.name == nil,
+               meta.desc == nil,
+               meta.author == nil,
+               meta.copyright == nil,
+               meta.links.isEmpty,
+               meta.time == nil,
+               meta.keywords == nil,
+               meta.bounds == nil
+            {
+                metadata = nil
+            }
+        }
+
         private func handleWaypointStart(
             _ kind: String,
             _ attrs: [String: String]
         ) {
             guard let latStr = attrs["lat"],
-                  let lonStr = attrs["lon"],
-                  let lat = Double(latStr),
+                  let lonStr = attrs["lon"]
+            else {
+                parseError = GPXError.invalidGPX(
+                    detail: "Waypoint '<\(kind)>' is missing 'lat' or 'lon'")
+                return
+            }
+
+            guard let lat = Double(latStr),
                   let lon = Double(lonStr)
-            else { return }
+            else {
+                parseError = GPXError.invalidCoordinate(
+                    detail: "Unparsable coordinate lat='\(latStr)' lon='\(lonStr)'")
+                return
+            }
+
+            guard lat.isFinite, lon.isFinite,
+                  (-90.0 ... 90.0).contains(lat),
+                  (-180.0 ... 180.0).contains(lon)
+            else {
+                parseError = GPXError.invalidCoordinate(
+                    detail: "Coordinate out of range lat='\(lat)' lon='\(lon)'")
+                return
+            }
 
             currentWaypoint = GPXWaypoint(latitude: lat, longitude: lon)
-            currentLinks = []
-            // Save parent extensions for child waypoints (rtept, trkpt)
+            gpx10LinkURL = nil
+            // Save parent context for child waypoints (rtept, trkpt)
             savedParentExtensions = nil
+            savedParentLinks = nil
             if kind == "rtept" || kind == "trkpt" {
                 savedParentExtensions = currentExtensions
+                savedParentLinks = currentLinks
             }
+            currentLinks = []
             currentExtensions = [:]
 
             switch kind {
@@ -316,10 +468,7 @@ enum GPXParser {
         private func handleWaypointEnd(_ kind: String) {
             guard var wp = currentWaypoint else { return }
             // GPX 1.0: flush pending URL-only link
-            if isGPX10, let href = gpx10LinkURL {
-                currentLinks.append(GPXLink(href: href))
-                gpx10LinkURL = nil
-            }
+            flushGPX10Link(into: &currentLinks)
             wp.links = currentLinks
             wp.extensions = currentExtensions
 
@@ -327,8 +476,14 @@ enum GPXParser {
                 builder(wp)
             }
             currentWaypoint = nil
-            currentLinks = []
-            // Restore parent extensions for child waypoints
+            // Restore parent context for child waypoints
+            if let saved = savedParentLinks {
+                currentLinks = saved
+                savedParentLinks = nil
+            }
+            else {
+                currentLinks = []
+            }
             if let saved = savedParentExtensions {
                 currentExtensions = saved
                 savedParentExtensions = nil
@@ -343,10 +498,12 @@ enum GPXParser {
             currentPoints = []
             currentLinks = []
             currentExtensions = [:]
+            gpx10LinkURL = nil
         }
 
         private func handleRouteEnd() {
             guard var route = currentRoute else { return }
+            flushGPX10Link(into: &currentLinks)
             route.points = currentPoints
             route.links = currentLinks
             route.extensions = currentExtensions
@@ -362,10 +519,12 @@ enum GPXParser {
             currentSegments = []
             currentLinks = []
             currentExtensions = [:]
+            gpx10LinkURL = nil
         }
 
         private func handleTrackEnd() {
             guard var track = currentTrack else { return }
+            flushGPX10Link(into: &currentLinks)
             track.segments = currentSegments
             track.links = currentLinks
             track.extensions = currentExtensions
@@ -388,11 +547,31 @@ enum GPXParser {
         private func handleLinkStart(_ attrs: [String: String]) {
             currentLink = GPXLink(href: attrs["href"] ?? "")
             inLink = true
+
+            let parent = pathStack.dropLast().last
+            if inAuthor || parent == "author" {
+                currentLinkOwner = .author
+            }
+            else if currentWaypoint != nil {
+                currentLinkOwner = .waypoint
+            }
+            else if parent == "metadata" {
+                currentLinkOwner = .metadata
+            }
+            else if currentRoute != nil, parent == "rte" {
+                currentLinkOwner = .route
+            }
+            else if currentTrack != nil, parent == "trk" {
+                currentLinkOwner = .track
+            }
+            else {
+                currentLinkOwner = .unknown
+            }
         }
 
         private func handleLinkEnd(_ chars: String) {
-            guard var link = currentLink else { return }
             inLink = false
+            guard var link = currentLink else { return }
 
             if pathStack.last == "text" {
                 link.text = chars
@@ -401,25 +580,28 @@ enum GPXParser {
                 link.type = chars
             }
 
-            if let parent = pathStack.dropLast().last {
-                switch parent {
-                case "link":
-                    // Nested link text/type element ended — just update the link
-                    currentLink = link
-                    return
-                default:
-                    break
-                }
-            }
-
-            currentLinks.append(link)
             currentLink = nil
-            // If we're directly inside metadata, add link to metadata
-            if pathStack.last == "metadata" || pathStack.dropLast().last == "metadata" {
-                var meta = metadata ?? GPXMetadata()
-                meta.links = currentLinks
-                metadata = meta
+            let owner = currentLinkOwner
+            currentLinkOwner = .unknown
+
+            switch owner {
+            case .metadata:
+                metadataLinks.append(link)
+            case .author:
+                currentLinks.append(link)
+            case .waypoint, .route, .track:
+                currentLinks.append(link)
+            case .unknown:
+                break
             }
+        }
+
+        /// Appends a GPX 1.0 `<url>`/`<urlname>` pair when only the URL was
+        /// present (no `<urlname>` follow-up).
+        private func flushGPX10Link(into links: inout [GPXLink]) {
+            guard isGPX10, let href = gpx10LinkURL else { return }
+            links.append(GPXLink(href: href))
+            gpx10LinkURL = nil
         }
 
         private func handleLinkLeaf(_ name: String, _ chars: String) {
@@ -441,13 +623,26 @@ enum GPXParser {
             inAuthor = true
         }
 
-        private func handleAuthorEnd() {
+        private func handleAuthorEnd(_ chars: String) {
             guard var person = currentPerson else { return }
             inAuthor = false
+
+            // GPX 1.0 stores the author as plain text.
+            if isGPX10, !chars.isEmpty {
+                person.name = chars
+            }
+
             if person.link == nil, let link = currentLinks.first {
                 person.link = link
             }
             if var meta = metadata {
+                if isGPX10, let existing = meta.author {
+                    var merged = existing
+                    if let name = person.name { merged.name = name }
+                    if let email = person.email { merged.email = email }
+                    if let link = person.link { merged.link = link }
+                    person = merged
+                }
                 meta.author = person
                 metadata = meta
             }
@@ -464,10 +659,15 @@ enum GPXParser {
         }
 
         private func handleEmailStart(_ attrs: [String: String]) {
-            var person = currentPerson ?? GPXPerson()
             let id = attrs["id"] ?? ""
             let domain = attrs["domain"] ?? ""
-            if !id.isEmpty || !domain.isEmpty {
+            guard !id.isEmpty || !domain.isEmpty else { return }
+
+            var person = currentPerson ?? GPXPerson()
+            if domain.isEmpty {
+                person.email = id
+            }
+            else {
                 person.email = "\(id)@\(domain)"
             }
             currentPerson = person
@@ -569,6 +769,27 @@ enum GPXParser {
             case ("metadata", "desc"): meta.desc = chars
             case ("metadata", "time"): meta.time = GPXDateFormatter.parse(chars)
             case ("metadata", "keywords"): meta.keywords = chars
+            case ("metadata", "email"):
+                // GPX 1.0 stores the email as plain text, not id/domain attributes.
+                if isGPX10, !chars.isEmpty {
+                    var person = meta.author ?? GPXPerson()
+                    person.email = chars
+                    meta.author = person
+                }
+            case ("metadata", "url"):
+                if isGPX10, !chars.isEmpty {
+                    gpx10LinkURL = chars
+                }
+            case ("metadata", "urlname"):
+                if isGPX10 {
+                    let href = gpx10LinkURL ?? ""
+                    if !href.isEmpty || !chars.isEmpty {
+                        metadataLinks.append(GPXLink(
+                            href: href,
+                            text: chars.isEmpty ? nil : chars))
+                        gpx10LinkURL = nil
+                    }
+                }
             default: break
             }
 
@@ -678,6 +899,18 @@ enum GPXParser {
             case "src": route.source = chars
             case "number": route.number = Int(chars)
             case "type": route.type = chars
+            case "url":
+                if isGPX10, !chars.isEmpty { gpx10LinkURL = chars }
+            case "urlname":
+                if isGPX10 {
+                    let href = gpx10LinkURL ?? ""
+                    if !href.isEmpty || !chars.isEmpty {
+                        currentLinks.append(GPXLink(
+                            href: href,
+                            text: chars.isEmpty ? nil : chars))
+                        gpx10LinkURL = nil
+                    }
+                }
             default: break
             }
 
@@ -694,6 +927,18 @@ enum GPXParser {
             case "src": track.source = chars
             case "number": track.number = Int(chars)
             case "type": track.type = chars
+            case "url":
+                if isGPX10, !chars.isEmpty { gpx10LinkURL = chars }
+            case "urlname":
+                if isGPX10 {
+                    let href = gpx10LinkURL ?? ""
+                    if !href.isEmpty || !chars.isEmpty {
+                        currentLinks.append(GPXLink(
+                            href: href,
+                            text: chars.isEmpty ? nil : chars))
+                        gpx10LinkURL = nil
+                    }
+                }
             default: break
             }
 
@@ -701,6 +946,17 @@ enum GPXParser {
         }
 
         // MARK: - Extension handling
+
+        private func resolvedExtensionNamespace(
+            for prefix: String
+        ) -> GPXExtensionNamespace? {
+            if let uri = declaredNamespaces[prefix.lowercased()],
+               let ns = GPXExtensionNamespace.namespace(forURI: uri)
+            {
+                return ns
+            }
+            return GPXExtensionNamespace.namespace(forPrefix: prefix)
+        }
 
         private func handleExtensionStart(
             originalName: String,
@@ -716,25 +972,25 @@ enum GPXParser {
             let prefix: String? = hasPrefix ? colonParts[0] : nil
 
             guard let prefix else { return }
-            guard let ns = GPXExtensionNamespace.namespace(forPrefix: prefix) else { return }
+            guard let ns = resolvedExtensionNamespace(for: prefix) else { return }
 
             switch lower {
             case "address":
-                if structuringDepth == 0 { currentStructuredRootElement = strippedName }
+                if structuringDepth == 0 { currentStructuredRootElement = "Address" }
                 structuringAddress = true
                 structuringDepth += 1
                 currentStructuredDict = [:]
                 currentExtensionPrefix = ns.prefix
                 currentExtensionElement = strippedName
             case "categories":
-                if structuringDepth == 0 { currentStructuredRootElement = strippedName }
+                if structuringDepth == 0 { currentStructuredRootElement = "Categories" }
                 structuringCategories = true
                 structuringDepth += 1
                 currentStructuredList = []
                 currentExtensionPrefix = ns.prefix
                 currentExtensionElement = strippedName
             case "phonenumber":
-                if structuringDepth == 0 { currentStructuredRootElement = strippedName }
+                if structuringDepth == 0 { currentStructuredRootElement = "PhoneNumber" }
                 structuringPhoneNumber = true
                 structuringDepth += 1
                 currentStructuredList = []
@@ -742,7 +998,7 @@ enum GPXParser {
                 currentExtensionPrefix = ns.prefix
                 currentExtensionElement = strippedName
             case "rpt":
-                if structuringDepth == 0 { currentStructuredRootElement = strippedName }
+                if structuringDepth == 0 { currentStructuredRootElement = "rpt" }
                 structuringRpt = true
                 structuringDepth += 1
                 currentRptPoints = []
@@ -781,34 +1037,37 @@ enum GPXParser {
 
             // Handle structured extensions
             if structuringAddress {
-                handleAddressChild(element, chars)
                 structuringDepth -= 1
                 if structuringDepth == 0 {
                     finalizeStructuredExtension(prefix: prefix, element: element)
+                }
+                else {
+                    handleAddressChild(strippedLocal, chars)
                 }
                 return
             }
 
             if structuringCategories {
-                handleCategoryChild(element, chars)
                 structuringDepth -= 1
                 if structuringDepth == 0 {
                     finalizeStructuredExtension(prefix: prefix, element: element)
+                }
+                else {
+                    handleCategoryChild(strippedLocal, chars)
                 }
                 return
             }
 
             if structuringPhoneNumber {
-                handlePhoneNumberChild(element, chars)
                 structuringDepth -= 1
                 if structuringDepth == 0 {
+                    handlePhoneNumberChild(strippedLocal, chars)
                     finalizeStructuredExtension(prefix: prefix, element: element)
                 }
                 return
             }
 
             if structuringRpt {
-                handleRptChild(element, chars)
                 structuringDepth -= 1
                 if structuringDepth == 0 {
                     finalizeStructuredExtension(prefix: prefix, element: element)
@@ -850,9 +1109,12 @@ enum GPXParser {
             }
 
             // Leaf extension element
-            if lower == element.lowercased()
-                || GPXExtensionNamespace.children(for: prefix).contains(strippedLocal)
-            {
+            let knownChildren = GPXExtensionNamespace.children(for: prefix)
+            let canonicalChild = knownChildren.first { $0.lowercased() == lower }
+            if lower == element.lowercased() || canonicalChild != nil {
+                let keyName = lower == element.lowercased()
+                    ? element
+                    : (canonicalChild ?? strippedLocal)
                 let inferred = inferExtensionValue(chars)
                 let isEmptyStr: Bool = {
                     if let s = inferred as? String { return s.isEmpty }
@@ -860,7 +1122,7 @@ enum GPXParser {
                 }()
                 if !isEmptyStr {
                     var nsDict = currentExtensions[prefix] ?? [:]
-                    nsDict[element] = inferred
+                    nsDict[keyName] = inferred
                     currentExtensions[prefix] = nsDict
                 }
                 currentExtensionPrefix = nil
@@ -871,19 +1133,31 @@ enum GPXParser {
         // MARK: - Structured extension helpers
 
         private func handleAddressChild(_ name: String, _ chars: String) {
-            let lower = name.lowercased()
-            if lower == "streetaddress" {
+            let canonical: String?
+            switch name.lowercased() {
+            case "streetaddress": canonical = "StreetAddress"
+            case "city": canonical = "City"
+            case "state": canonical = "State"
+            case "country": canonical = "Country"
+            case "postalcode": canonical = "PostalCode"
+            default: canonical = nil
+            }
+
+            guard let canonical, !chars.isEmpty else { return }
+
+            if canonical == "StreetAddress" {
                 var streets = currentStructuredDict["StreetAddress"] as? [String] ?? []
-                if !chars.isEmpty { streets.append(chars) }
+                streets.append(chars)
                 currentStructuredDict["StreetAddress"] = streets as Sendable
             }
-            else if !chars.isEmpty {
-                currentStructuredDict[name] = chars
+            else {
+                currentStructuredDict[canonical] = chars
             }
         }
 
         private func handleCategoryChild(_ name: String, _ chars: String) {
-            if name.lowercased() == "category", !chars.isEmpty {
+            let lower = name.lowercased()
+            if (lower == "category" || lower == "categories"), !chars.isEmpty {
                 currentStructuredList.append(chars)
             }
             // Ignore the parent element ending
@@ -913,7 +1187,13 @@ enum GPXParser {
             }
             else if structuringCategories, !currentStructuredList.isEmpty {
                 var nsDict = currentExtensions[prefix] ?? [:]
-                nsDict[key] = currentStructuredList
+                if var existing = nsDict[key] as? [Sendable] {
+                    existing.append(contentsOf: currentStructuredList)
+                    nsDict[key] = existing
+                }
+                else {
+                    nsDict[key] = currentStructuredList
+                }
                 currentExtensions[prefix] = nsDict
             }
             else if structuringPhoneNumber, !currentStructuredList.isEmpty {
@@ -946,7 +1226,7 @@ enum GPXParser {
             structuringCategories = false
             structuringPhoneNumber = false
             structuringRpt = false
-                        structuringDepth = 0
+            structuringDepth = 0
             currentStructuredRootElement = ""
             currentStructuredDict = [:]
             currentStructuredList = []
@@ -961,6 +1241,11 @@ enum GPXParser {
             let lower = string.lowercased()
             if lower == "true" { return true }
             if lower == "false" { return false }
+
+            // Preserve identifiers with leading zeros (e.g. "007").
+            if string.count > 1, string.hasPrefix("0"), !string.hasPrefix("0.") {
+                return string
+            }
 
             // Try Double
             if let d = Double(string) {

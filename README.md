@@ -11,18 +11,20 @@ GPX 1.1 (GPS Exchange Format) read and write support for Swift, built on top of 
 ## Features
 
 - Reads and writes GPX 1.1 files, with **read-only** support for GPX 1.0
-- Waypoints (`<wpt>`) → `Feature<Point>`, Routes (`<rte>`) → `Feature<LineString>`, Tracks (`<trk>`) → `Feature<MultiLineString>`
+- Waypoints (`<wpt>`) → `Point`, Routes (`<rte>`) → `LineString`, Tracks (`<trk>`) → `MultiLineString`
 - Typed convenience API on `Feature` and `FeatureCollection` — no manual dictionary casting
 - Full `<metadata>` block (name, author, copyright, bounds, keywords, time, links)
 - **Garmin TrackPointExtension v2** (`gpxtpx`): hr, cad, power, speed, course, bearing, temperature, depth
 - **Garmin GpxExtensions v3** (`gpxx`): Address, Categories, PhoneNumber, DisplayColor, IsAutoNamed, rpt
 - Structured extension values: `Address` → `GPXAddress`, `Categories` → `[String]`, `PhoneNumber` → `[GPXPhoneNumber]`
 - Automatic type inference for extension values (booleans, integers, floating-point, strings)
-- **Per-point sensor arrays**: heart rate, cadence, power, speed, temperature — stored as parallel arrays
-- **`gpxPointFeatures()`**: expand track points into individual `Point` features with per-point sensor data
-- Time-window and distance-window slicing of point features
-- GPX 1.0-specific fields: `course`/`speed` on track points, flat `url`/`urlname` links
-- Round-trip fidelity: write → read preserves element types, coordinates, properties, and extensions
+- **Per-point sensor arrays**: heart rate, cadence, power, speed, course, temperature, water temperature, depth, bearing, elevation, time
+- **Per-point route and track metadata arrays**: names, comments, descriptions, sources, symbols, types, links, raw extensions
+- **`gpxPointFeatures()`**: expand track points into individual `Point` features with per-point data
+- Time-window, distance-window, and fractional-window slicing of point features
+- GPX 1.0-specific fields: `course`/`speed` on track points, flat `url`/`urlname` links, plain-text author/email
+- WGS84 reprojection and coordinate validation on write
+- Round-trip fidelity for supported element types, properties, and extensions
 
 ## Requirements
 
@@ -32,8 +34,8 @@ Swift 6.1 or higher. Compiles on iOS (≥ iOS 15), macOS (≥ macOS 15), tvOS (�
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Outdooractive/gis-tools-gpx", from: "1.0.0"),
-    .package(url: "https://github.com/Outdooractive/gis-tools", from: "2.0.0"),
+    .package(url: "https://github.com/Outdooractive/gis-tools-gpx", from: "3.0.0-beta.1"),
+    .package(url: "https://github.com/Outdooractive/gis-tools", exact: "3.0.0-beta.5"),
 ],
 targets: [
     .target(name: "MyTarget", dependencies: [
@@ -65,7 +67,21 @@ try fc.writeGPX(to: outputURL)
 
 // Or via the coder directly:
 try GPXCoder.write(fc, to: outputURL)
+
+// Data:
+let data = try fc.gpxData()
+let sameData = try GPXCoder.write(fc)
 ```
+
+GPX only supports WGS84. Collections with a known projected CRS are
+reprojected to EPSG:4326 before writing; `noSRID` collections are written as-is
+and validated against the WGS84 coordinate ranges. Invalid coordinates throw
+`GPXError.invalidCoordinate`.
+
+All read/write failures surface as `GPXError` (`invalidXML`, `invalidGPX`,
+`unsupportedVersion`, `invalidCoordinate`, `fileReadError`, `fileWriteError`,
+or `invalidEncoding`). Malformed XML and empty files throw rather than
+returning partial results.
 
 ### Inspecting GPX element types
 
@@ -94,24 +110,24 @@ print(waypoint.gpxHDOP)            // 1.5
 print(waypoint.gpxTime)            // Optional<Date>
 
 // Coordinate access
-let coord = (waypoint.geometry as! Point).coordinate
-print(coord.latitude)              // 52.518611
-print(coord.longitude)             // 13.376111
-print(coord.altitude)              // 35.0
+let coord = (waypoint.geometry as? Point)?.coordinate
+print(coord?.latitude as Any)       // Optional(52.518611)
+print(coord?.longitude as Any)      // Optional(13.376111)
+print(coord?.altitude as Any)       // Optional(35.0)
 ```
 
 ### Track and route geometry
 
 ```swift
 let track = fc.features[1]
-let multiLine = track.geometry as! MultiLineString
-for (i, segment) in multiLine.lineStrings.enumerated() {
+let multiLine = track.geometry as? MultiLineString
+for (i, segment) in (multiLine?.lineStrings ?? []).enumerated() {
     print("Segment \(i): \(segment.coordinates.count) points")
 }
 
 let route = fc.features[2]
-let lineString = route.geometry as! LineString
-print("Route has \(lineString.coordinates.count) waypoints")
+let lineString = route.geometry as? LineString
+print("Route has \(lineString?.coordinates.count ?? 0) waypoints")
 ```
 
 ### Garmin fitness extensions (gpxtpx)
@@ -141,12 +157,28 @@ Track-level fitness data (gpxtpx extensions on `<trkpt>`) is accumulated into pa
 ```swift
 let track = fc.features.first { $0.gpxType == .track }!
 
-let hr = track.gpxHeartRates       // [Int?]? — [120, 145, 160, ...]
-let cad = track.gpxCadences         // [Int?]? — [80, 90, 95, ...]
-let pw = track.gpxPowers            // [Int?]? — [150, 220, ...] (nil = missing)
-let spd = track.gpxSpeeds           // [Double?]? — [12.5, ...]
-let tmp = track.gpxAirTemperatures  // [Double?]? — [22.5, ...]
-let elev = track.gpxElevations      // [Double?]? — [35.0, 38.0, ...]
+let hr = track.gpxHeartRates          // [Int?]? — [120, 145, 160, ...]
+let cad = track.gpxCadences           // [Int?]? — [80, 90, 95, ...]
+let pw = track.gpxPowers              // [Int?]? — [150, 220, ...] (nil = missing)
+let spd = track.gpxSpeeds             // [Double?]? — [12.5, ...]
+let crs = track.gpxCourses            // [Double?]? — [45.0, ...]
+let tmp = track.gpxAirTemperatures    // [Double?]? — [22.5, ...]
+let wtmp = track.gpxWaterTemperatures // [Double?]?
+let depth = track.gpxDepths           // [Double?]?
+let bearing = track.gpxBearings       // [Double?]?
+let elev = track.gpxElevations        // [Double?]? — [35.0, 38.0, ...]
+let times = track.gpxTimes            // [Date?]? — one per track point
+
+// Per-point standard fields and links
+let names = track.gpxTrackNames
+let comments = track.gpxTrackComments
+let descriptions = track.gpxTrackDescriptions
+let sources = track.gpxTrackSources
+let symbols = track.gpxTrackSymbols
+let types = track.gpxTrackTypes
+let links = track.gpxTrackLinks       // [[GPXLink]?]?
+let pointExts = track.gpxTrackPointExtensions
+let quality = track.gpxTrackPointQuality // fix, sat, hdop, vdop, pdop, magvar, ...
 
 // Arrays align with coordinates — nil where no data was recorded
 for i in 0..<(track.gpxHeartRates?.count ?? 0) {
@@ -155,6 +187,8 @@ for i in 0..<(track.gpxHeartRates?.count ?? 0) {
     }
 }
 ```
+
+`gpxSpeeds` and `gpxCourses` combine GPX 1.1 gpxtpx values with GPX 1.0 flat `<speed>`/`<course>` fields.
 
 ### Per-point data arrays (route Features only)
 
@@ -210,7 +244,7 @@ track?.gpxCadences?[1]        // 90
 track?.gpxHeartRate           // nil (track Feature has arrays, not single values)
 ```
 
-Non-Point features are silently skipped. Returns `nil` if no Point features exist. The gpxtpx extension data (hr, cad, power, speed, atemp) is extracted from each point and re-accumulated into parallel arrays, so round-trips preserve sensor data. The track has a single segment (no lap splitting).
+Non-Point features are silently skipped. Returns `nil` if no Point features exist. Per-point times, elevations, sensor arrays, names, comments, descriptions, sources, symbols, types, links, raw extensions, and quality fields are re-accumulated, so round-trips preserve them. The track has a single segment (no lap splitting).
 
 ### Garmin waypoint extensions (gpxx)
 
@@ -327,10 +361,15 @@ for link in waypoint.gpxLinks {
     // https://www.bundestag.de: Bundestag website
 }
 
-// GPX 1.0 course/speed on track points (not extensions)
-// These are stored as gpxCourse10 / gpxSpeed10 on the waypoints
-// within track segments, not on the track Feature itself.
+// GPX 1.0 course/speed on track points are folded into the track arrays
+// and written back as gpxtpx extensions when the file is re-encoded as 1.1.
+let courses = fc.gpxTracks.first?.gpxCourses   // [Double?]?
+let speeds = fc.gpxTracks.first?.gpxSpeeds     // [Double?]?
 ```
+
+GPX 1.0 plain-text `<author>`/`<email>` and metadata/route/track
+`<url>`/`<urlname>` are also supported. Route-point `<course>`/`<speed>` are
+not preserved.
 
 ### OSM traces
 
@@ -339,8 +378,8 @@ OpenStreetMap GPS traces are standard GPX 1.1 files — they read and write like
 ```swift
 let trace = try GPXCoder.read(from: osmURL)
 let track = trace.features.first { $0.gpxType == .track }!
-let multiline = track.geometry as! MultiLineString
-print("\(multiline.lineStrings[0].coordinates.count) trace points")
+let multiline = track.geometry as? MultiLineString
+print("\(multiline?.lineStrings.first?.coordinates.count ?? 0) trace points")
 
 // OSM traces often use cmt/desc for tagging
 print(track.gpxDescription)  // e.g. "Walking trace through Berlin Mitte"
@@ -378,6 +417,11 @@ let city = (gpxx?["Address"] as? [String: Sendable])?["City"] as? String
 | `gpxHDOP` | `Double?` | `<hdop>` |
 | `gpxVDOP` | `Double?` | `<vdop>` |
 | `gpxPDOP` | `Double?` | `<pdop>` |
+| `gpxMagneticVariation` | `Double?` | `<magvar>` |
+| `gpxGeoidHeight` | `Double?` | `<geoidheight>` |
+| `gpxAgeOfDGPSData` | `Double?` | `<ageofdgpsdata>` |
+| `gpxDGPSID` | `Int?` | `<dgpsid>` |
+| `gpxElevation` | `Double?` | `<ele>` (geometry altitude) |
 | `gpxTime` | `Date?` | `<time>` |
 | `gpxLinks` | `[GPXLink]` | `<link>` |
 | `gpxCourse10` | `Double?` | `<course>` (GPX 1.0) |
@@ -397,8 +441,20 @@ let city = (gpxx?["Address"] as? [String: Sendable])?["City"] as? String
 | `gpxSpeeds` | `[Double?]?` | gpxtpx `speed` (per-point array) |
 | `gpxCourses` | `[Double?]?` | gpxtpx `course` (per-point array) |
 | `gpxAirTemperatures` | `[Double?]?` | gpxtpx `atemp` (per-point array) |
+| `gpxWaterTemperatures` | `[Double?]?` | gpxtpx `wtemp` (per-point array) |
+| `gpxDepths` | `[Double?]?` | gpxtpx `depth` (per-point array) |
+| `gpxBearings` | `[Double?]?` | gpxtpx `bearing` (per-point array) |
 | `gpxElevations` | `[Double?]?` | `<ele>` (per-point array) |
 | `gpxTimes` | `[Date?]?` | `<time>` (per-point array) |
+| `gpxTrackNames` | `[String?]?` | `<trkpt><name>` (per-point array) |
+| `gpxTrackComments` | `[String?]?` | `<trkpt><cmt>` (per-point array) |
+| `gpxTrackDescriptions` | `[String?]?` | `<trkpt><desc>` (per-point array) |
+| `gpxTrackSources` | `[String?]?` | `<trkpt><src>` (per-point array) |
+| `gpxTrackSymbols` | `[String?]?` | `<trkpt><sym>` (per-point array) |
+| `gpxTrackTypes` | `[String?]?` | `<trkpt><type>` (per-point array) |
+| `gpxTrackLinks` | `[[GPXLink]?]?` | `<trkpt><link>` (per-point list) |
+| `gpxTrackPointExtensions` | `[[String: [String: Sendable]]?]?` | per-track-point raw extensions |
+| `gpxTrackPointQuality` | `[[String: Sendable]?]?` | per-track-point fix/sat/dop/magvar/dgps |
 | `gpxRouteTimes` | `[Date?]?` | `<rtept><time>` (per-rtept array) |
 | `gpxRouteNames` | `[String?]?` | `<rtept><name>` (per-rtept array) |
 | `gpxRouteComments` | `[String?]?` | `<rtept><cmt>` (per-rtept array) |
@@ -463,8 +519,19 @@ let city = (gpxx?["Address"] as? [String: Sendable])?["City"] as? String
 
 ### Limitations
 
-- GPX 1.0 is **read-only**; written files always use GPX 1.1. GPX 1.0 `<course>`/`<speed>` on `<trkpt>` are upgraded to `gpxtpx:course`/`gpxtpx:speed` extensions on write, so they round-trip correctly.
-- List-type extensions (Categories, PhoneNumber) use generic element names on write; exact child-element names may differ on round-trip
+- GPX 1.0 is **read-only**; written files always use GPX 1.1. GPX 1.0 `<course>`/`<speed>` are upgraded to `gpxtpx:course`/`gpxtpx:speed` extensions on write.
+- Only the `gpxtpx` and `gpxx` namespaces are recognized. Custom extension namespaces are ignored by the parser and skipped on write. A default namespace declared directly on `<extensions>` is not supported.
+- Metadata `<extensions>` are not represented in the model.
+- Route-point GNSS quality fields (`fix`, `sat`, `dop`, `magvar`, `geoidheight`, `ageofdgpsdata`, `dgpsid`) and route-point `<course>`/`<speed>` are not preserved.
+- Track reconstruction produces one segment; original `<trkseg>` boundaries are not recovered.
+- `noSRID` collections are written as-is and are assumed to contain WGS84 values.
+
+## Documentation
+
+A DocC catalog lives in `Sources/GISToolsGPX/GISToolsGPX.docc`. It covers
+installation, waypoints/routes/tracks, Garmin extensions and point slicing, and
+writing/limitations. The CI workflow builds it with `docc convert` and treats
+documentation warnings as errors.
 
 ## Contributing
 

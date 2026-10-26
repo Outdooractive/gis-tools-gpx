@@ -1,7 +1,7 @@
 import Foundation
 
 /// Well-known GPX extension namespaces and their element names.
-enum GPXExtensionNamespace: String {
+enum GPXExtensionNamespace: String, Equatable, Sendable {
 
     /// Garmin TrackPoint Extension v2
     /// (http://www.garmin.com/xmlschemas/TrackPointExtension/v2)
@@ -63,7 +63,7 @@ enum GPXExtensionNamespace: String {
                 "Proximity", "Temperature", "Depth", "DisplayMode",
                 "Categories", "Category", "Address", "StreetAddress",
                 "City", "State", "Country", "PostalCode",
-                "PhoneNumber", "IsAutoNamed",
+                "PhoneNumber", "IsAutoNamed", "Speed",
                 "DisplayColor", "Subclass", "rpt",
             ]
         default: []
@@ -73,7 +73,7 @@ enum GPXExtensionNamespace: String {
 }
 
 /// The context in which a GPX extension element appears.
-enum GPXExtensionContext {
+enum GPXExtensionContext: Equatable, Sendable {
 
     case waypoint
     case routePoint

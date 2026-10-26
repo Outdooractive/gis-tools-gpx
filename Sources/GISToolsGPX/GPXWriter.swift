@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - GPX XML Writer
 
-/// Writes a ``GPXFile`` model to a GPX 1.1 XML string.
+/// Writes a `GPXFile` model to a GPX 1.1 XML string.
 enum GPXWriter {
 
     /// Writes the GPX file model to a complete GPX 1.1 XML string.
@@ -39,10 +39,14 @@ enum GPXWriter {
         for rte in gpx.routes {
             collector.append(indent(1) + "<rte>")
             writeRouteMeta(rte, to: &collector, indentLevel: 2)
+            writeExtensions(
+                rte.extensions,
+                to: &collector,
+                indentLevel: 2,
+                context: .route)
             for pt in rte.points {
                 writeWaypoint(pt, elementName: "rtept", to: &collector, indentLevel: 2)
             }
-            writeExtensions(rte.extensions, to: &collector, indentLevel: 2)
             collector.append(indent(1) + "</rte>")
         }
 
@@ -50,6 +54,11 @@ enum GPXWriter {
         for trk in gpx.tracks {
             collector.append(indent(1) + "<trk>")
             writeTrackMeta(trk, to: &collector, indentLevel: 2)
+            writeExtensions(
+                trk.extensions,
+                to: &collector,
+                indentLevel: 2,
+                context: .track)
             for seg in trk.segments {
                 collector.append(indent(2) + "<trkseg>")
                 for pt in seg {
@@ -57,7 +66,6 @@ enum GPXWriter {
                 }
                 collector.append(indent(2) + "</trkseg>")
             }
-            writeExtensions(trk.extensions, to: &collector, indentLevel: 2)
             collector.append(indent(1) + "</trk>")
         }
 
@@ -68,13 +76,27 @@ enum GPXWriter {
     // MARK: - XML helpers
 
     private static func indent(_ level: Int) -> String {
-        String(repeating: "  ", count: level * 2)
-            .prefix(level * 2)
-            .description
+        String(repeating: "  ", count: level)
+    }
+
+    /// Removes characters that are not legal in an XML 1.0 document.
+    private static func sanitizeXML(_ text: String) -> String {
+        let scalars = text.unicodeScalars.filter { scalar in
+            switch scalar.value {
+            case 0x09, 0x0A, 0x0D:
+                true
+            case 0x20 ... 0xD7FF, 0xE000 ... 0xFFFD, 0x1_0000 ... 0x10_FFFF:
+                true
+            default:
+                false
+            }
+        }
+        return String(String.UnicodeScalarView(scalars))
     }
 
     private static func escapeXML(_ text: String) -> String {
-        text.replacingOccurrences(of: "&", with: "&amp;")
+        sanitizeXML(text)
+            .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\"", with: "&quot;")
@@ -82,13 +104,14 @@ enum GPXWriter {
     }
 
     private static func formatDate(_ date: Date) -> String {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f.string(from: date)
+        GPXDateFormatter.format(date)
     }
 
     private static func formatCoordinate(_ value: Double) -> String {
-        String(format: "%.9g", value)
+        String(
+            format: "%.15g",
+            locale: Locale(identifier: "en_US_POSIX"),
+            value)
     }
 
     // MARK: - Namespace handling
@@ -97,23 +120,33 @@ enum GPXWriter {
         var prefixes = Set<String>()
 
         for wp in gpx.waypoints {
-            prefixes.formUnion(wp.extensions.keys)
+            prefixes.formUnion(waypointNamespaces(wp))
         }
         for rte in gpx.routes {
             prefixes.formUnion(rte.extensions.keys)
             for pt in rte.points {
-                prefixes.formUnion(pt.extensions.keys)
+                prefixes.formUnion(waypointNamespaces(pt))
             }
         }
         for trk in gpx.tracks {
             prefixes.formUnion(trk.extensions.keys)
             for seg in trk.segments {
                 for pt in seg {
-                    prefixes.formUnion(pt.extensions.keys)
+                    prefixes.formUnion(waypointNamespaces(pt))
                 }
             }
         }
 
+        return prefixes
+    }
+
+    /// Namespaces used by a waypoint, including the gpxtpx namespace injected
+    /// for GPX 1.0 course/speed values.
+    private static func waypointNamespaces(_ wp: GPXWaypoint) -> Set<String> {
+        var prefixes = Set(wp.extensions.keys)
+        if wp.course != nil || wp.speed != nil {
+            prefixes.insert("gpxtpx")
+        }
         return prefixes
     }
 
@@ -197,16 +230,18 @@ enum GPXWriter {
         let i = indent(indentLevel)
 
         if let name = person.name { collector.append(i + element("name", name)) }
-        if let email = person.email {
-            // Email in GPX is <email id="..." domain="..."/>
-            let parts = email.components(separatedBy: "@")
-            if parts.count == 2 {
+        if let email = person.email, !email.isEmpty {
+            // Email in GPX 1.1 is <email id="..." domain="..."/>
+            if let at = email.lastIndex(of: "@") {
+                let id = String(email[..<at])
+                let domain = String(email[email.index(after: at)...])
                 collector.append(
-                    i + "<email id=\"\(escapeXML(parts[0]))\""
-                        + " domain=\"\(escapeXML(parts[1]))\" />")
+                    i + "<email id=\"\(escapeXML(id))\""
+                        + " domain=\"\(escapeXML(domain))\" />")
             }
             else {
-                collector.append(i + element("email", email))
+                collector.append(
+                    i + "<email id=\"\(escapeXML(email))\" domain=\"\" />")
             }
         }
         if let link = person.link {
@@ -270,7 +305,30 @@ enum GPXWriter {
         if let age = wp.ageOfDGPSData { collector.append(ci + element("ageofdgpsdata", formatCoordinate(age))) }
         if let dgpsid = wp.dgpsid { collector.append(ci + element("dgpsid", "\(dgpsid)")) }
 
-        writeExtensions(wp.extensions, to: &collector, indentLevel: indentLevel + 1)
+        // GPX 1.0 course/speed have no GPX 1.1 equivalent. Preserve them as
+        // gpxtpx extensions when writing 1.1, mirroring track-point handling.
+        var extensions = wp.extensions
+        if wp.course != nil || wp.speed != nil {
+            var gpxtpx = extensions["gpxtpx"] ?? [:]
+            if let course = wp.course, gpxtpx["course"] == nil {
+                gpxtpx["course"] = course
+            }
+            if let speed = wp.speed, gpxtpx["speed"] == nil {
+                gpxtpx["speed"] = speed
+            }
+            extensions["gpxtpx"] = gpxtpx
+        }
+
+        let context: GPXExtensionContext = switch elementName {
+        case "wpt": .waypoint
+        case "rtept": .routePoint
+        default: .trackPoint
+        }
+        writeExtensions(
+            extensions,
+            to: &collector,
+            indentLevel: indentLevel + 1,
+            context: context)
 
         collector.append(i + "</\(elementName)>")
     }
@@ -316,7 +374,8 @@ enum GPXWriter {
     private static func writeExtensions(
         _ extensions: [String: [String: Sendable]],
         to collector: inout [String],
-        indentLevel: Int
+        indentLevel: Int,
+        context: GPXExtensionContext
     ) {
         guard !extensions.isEmpty else { return }
         let i = indent(indentLevel)
@@ -326,25 +385,17 @@ enum GPXWriter {
         for (prefix, elements) in extensions.sorted(by: { $0.key < $1.key }) {
             guard GPXExtensionNamespace.namespace(for: prefix) != nil else { continue }
 
-            let needsWrapper: Bool = {
-                if prefix == "gpxtpx" { return true }
-                return elements.keys.allSatisfy { key in
-                    !["Address", "Categories", "PhoneNumber", "rpt",
-                      "WaypointExtension", "RouteExtension",
-                      "TrackExtension", "TrackPointExtension",
-                      "RoutePointExtension"].contains(key)
-                }
-            }()
+            let wrapper = extensionWrapperName(for: prefix, context: context)
+            let hasExplicitWrapper = wrapper.map { elements[$0] != nil } ?? false
 
-            if needsWrapper {
-                let w = extensionWrapperName(for: prefix) ?? "Extension"
-                collector.append(indent(indentLevel + 1) + "<\(prefix):\(w)>")
+            if let wrapper, !hasExplicitWrapper {
+                collector.append(indent(indentLevel + 1) + "<\(prefix):\(wrapper)>")
                 for (key, value) in elements.sorted(by: { $0.key < $1.key }) {
                     writeExtensionElement(
                         prefix: prefix, key: key, value: value,
                         to: &collector, indentLevel: indentLevel + 2)
                 }
-                collector.append(indent(indentLevel + 1) + "</\(prefix):\(w)>")
+                collector.append(indent(indentLevel + 1) + "</\(prefix):\(wrapper)>")
             }
             else {
                 for (key, value) in elements.sorted(by: { $0.key < $1.key }) {
@@ -389,9 +440,25 @@ enum GPXWriter {
             collector.append(i + "</\(prefix):\(key)>")
 
         case let arr as [Sendable]:
+            // Garmin wraps repeatable categories in one <Categories> parent
+            // whose children are singular <Category> elements.
+            if key == "Categories" {
+                collector.append(i + "<\(prefix):Categories>")
+                for item in arr {
+                    collector.append(
+                        indent(indentLevel + 1)
+                            + "<\(prefix):Category>\(formatValue(item))</\(prefix):Category>")
+                }
+                collector.append(i + "</\(prefix):Categories>")
+                return
+            }
+
             for item in arr {
                 if let itemDict = item as? [String: Sendable] {
-                    let attrs = buildAttributes(from: itemDict, except: "value")
+                    let attrs = buildAttributes(
+                        from: itemDict,
+                        except: "value",
+                        renaming: key == "PhoneNumber" ? ["category": "Category"] : [:])
                     let textValue = itemDict["value"] as? String ?? ""
                     if attrs.isEmpty {
                         collector.append(i + "<\(prefix):\(key)>\(escapeXML(textValue))</\(prefix):\(key)>")
@@ -418,10 +485,17 @@ enum GPXWriter {
         }
     }
 
-    private static func buildAttributes(from dict: [String: Sendable], except: String) -> String {
+    private static func buildAttributes(
+        from dict: [String: Sendable],
+        except: String,
+        renaming: [String: String] = [:]
+    ) -> String {
         dict.filter { $0.key.lowercased() != except.lowercased() }
             .sorted(by: { $0.key < $1.key })
-            .map { "\($0.key)=\"\(escapeXML(formatValue($0.value)))\"" }
+            .map { (key, value) in
+                let name = renaming.first { $0.key.lowercased() == key.lowercased() }?.value ?? key
+                return "\(name)=\"\(escapeXML(formatValue(value)))\""
+            }
             .joined(separator: " ")
     }
 
@@ -435,10 +509,24 @@ enum GPXWriter {
         }
     }
 
-    private static func extensionWrapperName(for prefix: String) -> String? {
+    private static func extensionWrapperName(
+        for prefix: String,
+        context: GPXExtensionContext
+    ) -> String? {
         switch prefix {
-        case "gpxtpx": "TrackPointExtension"
-        case "gpxx": nil // gpxx elements vary by context
+        case "gpxtpx":
+            switch context {
+            case .route, .track: nil
+            default: "TrackPointExtension"
+            }
+        case "gpxx":
+            switch context {
+            case .waypoint: "WaypointExtension"
+            case .routePoint: "RoutePointExtension"
+            case .trackPoint: "TrackPointExtension"
+            case .route: "RouteExtension"
+            case .track: "TrackExtension"
+            }
         default: nil
         }
     }

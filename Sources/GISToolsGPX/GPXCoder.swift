@@ -6,7 +6,7 @@ import GISTools
 /// Reads and writes GPX 1.1 files (GPS Exchange Format).
 ///
 /// GPX files contain waypoints (`<wpt>`), routes (`<rte>`), and tracks
-/// (`<trk>`). This coder maps them to a ``FeatureCollection`` with:
+/// (`<trk>`). This coder maps them to a `FeatureCollection` with:
 ///
 /// | GPX Element     | GeoJSON Geometry    | `gpx_type` property |
 /// |-----------------|---------------------|---------------------|
@@ -17,25 +17,25 @@ import GISTools
 /// GPX extensions (Garmin `gpxtpx`, `gpxx`, etc.) are stored as a nested
 /// dictionary under `Feature.properties["extensions"]`.
 ///
-/// GPX `<metadata>` is stored in ``FeatureCollection``'s `foreignMembers`.
+/// GPX `<metadata>` is stored in `FeatureCollection`'s `foreignMembers`.
 public enum GPXCoder {
 
     // MARK: - Read
 
-    /// Reads a GPX file and returns a ``FeatureCollection``.
+    /// Reads a GPX file and returns a `FeatureCollection`.
     ///
     /// - Parameter url: The URL of the GPX file to read.
-    /// - Returns: A ``FeatureCollection`` with the GPX data.
+    /// - Returns: A `FeatureCollection` with the GPX data.
     /// - Throws: ``GPXError`` if the file cannot be read or parsed.
     public static func read(from url: URL) throws -> FeatureCollection {
         let gpx = try GPXParser.parse(url: url)
         return try convertToGeoJSON(gpx)
     }
 
-    /// Reads GPX data and returns a ``FeatureCollection``.
+    /// Reads GPX data and returns a `FeatureCollection`.
     ///
     /// - Parameter data: The raw GPX data.
-    /// - Returns: A ``FeatureCollection`` with the GPX data.
+    /// - Returns: A `FeatureCollection` with the GPX data.
     /// - Throws: ``GPXError`` if the data cannot be parsed.
     public static func read(from data: Data) throws -> FeatureCollection {
         let gpx = try GPXParser.parse(data: data)
@@ -44,7 +44,10 @@ public enum GPXCoder {
 
     // MARK: - Write
 
-    /// Serializes a ``FeatureCollection`` to GPX data.
+    /// Serializes a `FeatureCollection` to GPX data.
+    ///
+    /// The collection is reprojected to EPSG:4326 (the only CRS GPX
+    /// supports) when it has a known projected CRS.
     ///
     /// - Parameters:
     ///   - featureCollection: The FeatureCollection to serialize.
@@ -55,7 +58,8 @@ public enum GPXCoder {
         _ featureCollection: FeatureCollection,
         creator: String = "GISToolsGPX"
     ) throws -> Data {
-        let gpx = try convertFromGeoJSON(featureCollection)
+        let collection = collectionInWGS84(featureCollection)
+        let gpx = try convertFromGeoJSON(collection)
         let xml = GPXWriter.write(gpx, creator: creator)
         guard let data = xml.data(using: .utf8) else {
             throw GPXError.invalidEncoding
@@ -63,7 +67,7 @@ public enum GPXCoder {
         return data
     }
 
-    /// Writes a ``FeatureCollection`` as a GPX file.
+    /// Writes a `FeatureCollection` as a GPX file.
     ///
     /// - Parameters:
     ///   - featureCollection: The FeatureCollection to write.
@@ -81,6 +85,21 @@ public enum GPXCoder {
         }
         catch {
             throw GPXError.fileWriteError(detail: error.localizedDescription)
+        }
+    }
+
+    // MARK: - Projection
+
+    /// GPX stores WGS84 (EPSG:4326) coordinates only. Reproject known
+    /// projected collections; `noSRID` data is written as-is.
+    private static func collectionInWGS84(
+        _ featureCollection: FeatureCollection
+    ) -> FeatureCollection {
+        switch featureCollection.projection {
+        case .epsg4326, .noSRID:
+            featureCollection
+        default:
+            featureCollection.projected(to: .epsg4326)
         }
     }
 
@@ -130,25 +149,25 @@ public enum GPXCoder {
             switch gpxType {
             case "wpt":
                 if let point = feature.geometry as? Point {
-                    waypoints.append(featureToWaypoint(feature, point: point))
+                    waypoints.append(try featureToWaypoint(feature, point: point))
                 }
             case "rte":
                 if let lineString = feature.geometry as? LineString {
-                    routes.append(featureToRoute(feature, lineString: lineString))
+                    routes.append(try featureToRoute(feature, lineString: lineString))
                 }
             case "trk":
                 if let multiLine = feature.geometry as? MultiLineString {
-                    tracks.append(featureToTrack(feature, multiLine: multiLine))
+                    tracks.append(try featureToTrack(feature, multiLine: multiLine))
                 }
             default:
-                // Try to infer from geometry type
-                switch feature.geometry.type {
-                case .point:
-                    waypoints.append(featureToWaypoint(feature, point: feature.geometry as! Point))
-                case .lineString:
-                    routes.append(featureToRoute(feature, lineString: feature.geometry as! LineString))
-                case .multiLineString:
-                    tracks.append(featureToTrack(feature, multiLine: feature.geometry as! MultiLineString))
+                // Try to infer from the geometry type
+                switch feature.geometry {
+                case let point as Point:
+                    waypoints.append(try featureToWaypoint(feature, point: point))
+                case let lineString as LineString:
+                    routes.append(try featureToRoute(feature, lineString: lineString))
+                case let multiLine as MultiLineString:
+                    tracks.append(try featureToTrack(feature, multiLine: multiLine))
                 default:
                     break
                 }
@@ -205,9 +224,10 @@ public enum GPXCoder {
     private static func featureToWaypoint(
         _ feature: Feature,
         point: Point
-    ) -> GPXWaypoint {
+    ) throws -> GPXWaypoint {
         let props = feature.properties
         let coord = point.coordinate
+        try validateGPSCoordinate(coord)
 
         let links: [GPXLink] = extractLinks(from: props)
         let extensions: [String: [String: Sendable]] = extractExtensions(from: props)
@@ -215,7 +235,7 @@ public enum GPXCoder {
         return GPXWaypoint(
             latitude: coord.latitude,
             longitude: coord.longitude,
-            elevation: coord.altitude,
+            elevation: coord.altitude ?? doubleProp(props, "ele"),
             time: dateProp(props, "time"),
             magneticVariation: doubleProp(props, "magvar"),
             geoidHeight: doubleProp(props, "geoidheight"),
@@ -311,7 +331,7 @@ public enum GPXCoder {
     private static func featureToRoute(
         _ feature: Feature,
         lineString: LineString
-    ) -> GPXRoute {
+    ) throws -> GPXRoute {
         let props = feature.properties
         let links: [GPXLink] = extractLinks(from: props)
         let extensions: [String: [String: Sendable]] = extractExtensions(from: props)
@@ -329,7 +349,9 @@ public enum GPXCoder {
         let routeLinks = props["gpx_route_links"] as? [[[String: String]]]
         let routeExtensions = props["gpx_route_extensions"] as? [[String: Sendable]]
 
-        let points = lineString.coordinates.enumerated().map { idx, coord -> GPXWaypoint in
+        let points = try lineString.coordinates.enumerated().map { idx, coord -> GPXWaypoint in
+            try validateGPSCoordinate(coord)
+
             // Extensions
             var pointExtensions: [String: [String: Sendable]] = [:]
             if let arr = routeExtensions, idx < arr.count, !arr[idx].isEmpty {
@@ -416,23 +438,44 @@ public enum GPXCoder {
         var speeds: [Double?] = []
         var courses: [Double?] = []
         var temperatures: [Double?] = []
+        var waterTemperatures: [Double?] = []
+        var depths: [Double?] = []
+        var bearings: [Double?] = []
         var elevations: [Double?] = []
         var times: [Double?] = []  // TimeInterval since reference date
+        var names: [String?] = []
+        var comments: [String?] = []
+        var descriptions: [String?] = []
+        var sources: [String?] = []
+        var symbols: [String?] = []
+        var types: [String?] = []
+        var pointLinks: [[[String: String]]] = []
+        var rawExtensions: [[String: Sendable]] = []
+        var quality: [[String: Sendable]] = []
 
-        for segment in trk.segments {
-            for wp in segment {
-                if let t = wp.time { times.append(t.timeIntervalSinceReferenceDate) }
-                else { times.append(nil) }
-                if let e = wp.elevation { elevations.append(e) }
-                else { elevations.append(nil) }
-                let ext = wp.extensions["gpxtpx"]
-                heartRates.append(ext?["hr"] as? Int)
-                cadences.append(ext?["cad"] as? Int)
-                powers.append(ext?["power"] as? Int)
-                speeds.append(extensionDouble(ext, "speed") ?? wp.speed)
-                courses.append(extensionDouble(ext, "course") ?? wp.course)
-                temperatures.append(extensionDouble(ext, "atemp"))
-            }
+        for wp in trk.segments.flatMap({ $0 }) {
+            times.append(wp.time?.timeIntervalSinceReferenceDate)
+            elevations.append(wp.elevation)
+            names.append(wp.name)
+            comments.append(wp.comment)
+            descriptions.append(wp.description)
+            sources.append(wp.source)
+            symbols.append(wp.symbol)
+            types.append(wp.type)
+            pointLinks.append(linksToDicts(wp.links))
+            rawExtensions.append(rawTrackPointExtensions(wp.extensions))
+            quality.append(trackPointQuality(wp))
+
+            let ext = wp.extensions["gpxtpx"]
+            heartRates.append(extensionInt(ext, "hr"))
+            cadences.append(extensionInt(ext, "cad"))
+            powers.append(extensionInt(ext, "power"))
+            speeds.append(extensionDouble(ext, "speed") ?? wp.speed)
+            courses.append(extensionDouble(ext, "course") ?? wp.course)
+            temperatures.append(extensionDouble(ext, "atemp"))
+            waterTemperatures.append(extensionDouble(ext, "wtemp"))
+            depths.append(extensionDouble(ext, "depth"))
+            bearings.append(extensionDouble(ext, "bearing"))
         }
 
         // Only store arrays that have at least one non-nil value
@@ -442,8 +485,30 @@ public enum GPXCoder {
         if speeds.contains(where: { $0 != nil }) { feature.properties["gpx_speeds"] = speeds }
         if courses.contains(where: { $0 != nil }) { feature.properties["gpx_courses"] = courses }
         if temperatures.contains(where: { $0 != nil }) { feature.properties["gpx_air_temperatures"] = temperatures }
+        if waterTemperatures.contains(where: { $0 != nil }) {
+            feature.properties["gpx_water_temperatures"] = waterTemperatures
+        }
+        if depths.contains(where: { $0 != nil }) { feature.properties["gpx_depths"] = depths }
+        if bearings.contains(where: { $0 != nil }) { feature.properties["gpx_bearings"] = bearings }
         if elevations.contains(where: { $0 != nil }) { feature.properties["gpx_elevations"] = elevations }
         if times.contains(where: { $0 != nil }) { feature.properties["gpx_times"] = times }
+        if names.contains(where: { $0 != nil }) { feature.properties["gpx_track_names"] = names }
+        if comments.contains(where: { $0 != nil }) { feature.properties["gpx_track_comments"] = comments }
+        if descriptions.contains(where: { $0 != nil }) {
+            feature.properties["gpx_track_descriptions"] = descriptions
+        }
+        if sources.contains(where: { $0 != nil }) { feature.properties["gpx_track_sources"] = sources }
+        if symbols.contains(where: { $0 != nil }) { feature.properties["gpx_track_symbols"] = symbols }
+        if types.contains(where: { $0 != nil }) { feature.properties["gpx_track_types"] = types }
+        if pointLinks.contains(where: { !$0.isEmpty }) {
+            feature.properties["gpx_track_links"] = pointLinks
+        }
+        if rawExtensions.contains(where: { !$0.isEmpty }) {
+            feature.properties["gpx_track_point_extensions"] = rawExtensions
+        }
+        if quality.contains(where: { !$0.isEmpty }) {
+            feature.properties["gpx_track_point_quality"] = quality
+        }
 
         return feature
     }
@@ -451,7 +516,7 @@ public enum GPXCoder {
     private static func featureToTrack(
         _ feature: Feature,
         multiLine: MultiLineString
-    ) -> GPXTrack {
+    ) throws -> GPXTrack {
         let props = feature.properties
         let links: [GPXLink] = extractLinks(from: props)
         let extensions: [String: [String: Sendable]] = extractExtensions(from: props)
@@ -463,32 +528,71 @@ public enum GPXCoder {
         let speeds = props["gpx_speeds"] as? [Double?]
         let courses = props["gpx_courses"] as? [Double?]
         let temperatures = props["gpx_air_temperatures"] as? [Double?]
+        let waterTemperatures = props["gpx_water_temperatures"] as? [Double?]
+        let depths = props["gpx_depths"] as? [Double?]
+        let bearings = props["gpx_bearings"] as? [Double?]
+        let names = props["gpx_track_names"] as? [String?]
+        let comments = props["gpx_track_comments"] as? [String?]
+        let descriptions = props["gpx_track_descriptions"] as? [String?]
+        let sources = props["gpx_track_sources"] as? [String?]
+        let symbols = props["gpx_track_symbols"] as? [String?]
+        let types = props["gpx_track_types"] as? [String?]
+        let pointLinks = props["gpx_track_links"] as? [[[String: String]]]
+        let rawExtensions = props["gpx_track_point_extensions"] as? [[String: Sendable]]
+        let quality = props["gpx_track_point_quality"] as? [[String: Sendable]]
 
         var pointIndex = 0
-        let segments = multiLine.lineStrings.map { lineString in
-            lineString.coordinates.map { coord -> GPXWaypoint in
+        let segments = try multiLine.lineStrings.map { lineString in
+            try lineString.coordinates.map { coord -> GPXWaypoint in
+                try validateGPSCoordinate(coord)
                 let idx = pointIndex
                 pointIndex += 1
 
-                let time = times.flatMap { idx < $0.count ? $0[idx] : nil }
+                let time = optionalValue(times, at: idx)
                     .map { Date(timeIntervalSinceReferenceDate: $0) }
 
-                var gpxtpx: [String: Sendable] = [:]
-                if let arr = heartRates, idx < arr.count, let v = arr[idx] { gpxtpx["hr"] = v }
-                if let arr = cadences, idx < arr.count, let v = arr[idx] { gpxtpx["cad"] = v }
-                if let arr = powers, idx < arr.count, let v = arr[idx] { gpxtpx["power"] = v }
-                if let arr = speeds, idx < arr.count, let v = arr[idx] { gpxtpx["speed"] = v }
-                if let arr = courses, idx < arr.count, let v = arr[idx] { gpxtpx["course"] = v }
-                if let arr = temperatures, idx < arr.count, let v = arr[idx] { gpxtpx["atemp"] = v }
+                var pointExtensions = extensionDictionary(
+                    from: optionalValue(rawExtensions, at: idx))
 
-                var pointExtensions: [String: [String: Sendable]] = [:]
+                var gpxtpx = pointExtensions["gpxtpx"] ?? [:]
+                if let v = optionalValue(heartRates, at: idx) { gpxtpx["hr"] = v }
+                if let v = optionalValue(cadences, at: idx) { gpxtpx["cad"] = v }
+                if let v = optionalValue(powers, at: idx) { gpxtpx["power"] = v }
+                if let v = optionalValue(speeds, at: idx) { gpxtpx["speed"] = v }
+                if let v = optionalValue(courses, at: idx) { gpxtpx["course"] = v }
+                if let v = optionalValue(temperatures, at: idx) { gpxtpx["atemp"] = v }
+                if let v = optionalValue(waterTemperatures, at: idx) { gpxtpx["wtemp"] = v }
+                if let v = optionalValue(depths, at: idx) { gpxtpx["depth"] = v }
+                if let v = optionalValue(bearings, at: idx) { gpxtpx["bearing"] = v }
                 if !gpxtpx.isEmpty { pointExtensions["gpxtpx"] = gpxtpx }
+
+                let pointLinkValues = optionalValue(pointLinks, at: idx) ?? []
+                let pointGPXLinks = pointLinkValues.compactMap { dictLink($0) }
+                let pointQuality = quality.flatMap {
+                    $0.indices.contains(idx) ? $0[idx] : nil
+                } ?? [:]
 
                 return GPXWaypoint(
                     latitude: coord.latitude,
                     longitude: coord.longitude,
                     elevation: coord.altitude,
                     time: time,
+                    magneticVariation: doubleProp(pointQuality, "magvar"),
+                    geoidHeight: doubleProp(pointQuality, "geoidheight"),
+                    name: optionalValue(names, at: idx),
+                    comment: optionalValue(comments, at: idx),
+                    description: optionalValue(descriptions, at: idx),
+                    source: optionalValue(sources, at: idx),
+                    links: pointGPXLinks,
+                    symbol: optionalValue(symbols, at: idx),
+                    type: optionalValue(types, at: idx),
+                    fix: stringProp(pointQuality, "fix").flatMap(GPSFixType.init(rawValue:)),
+                    satellites: intProp(pointQuality, "sat"),
+                    horizontalDilution: doubleProp(pointQuality, "hdop"),
+                    verticalDilution: doubleProp(pointQuality, "vdop"),
+                    positionDilution: doubleProp(pointQuality, "pdop"),
+                    ageOfDGPSData: doubleProp(pointQuality, "ageofdgpsdata"),
+                    dgpsid: intProp(pointQuality, "dgpsid"),
                     extensions: pointExtensions)
             }
         }
@@ -503,6 +607,64 @@ public enum GPXCoder {
             type: stringProp(props, "type"),
             segments: segments,
             extensions: extensions)
+    }
+
+    /// GPX extension keys that are projected into typed track-point arrays.
+    /// Everything else is kept verbatim so vendor extensions survive a
+    /// read → write → read cycle.
+    private static let typedGPXTrackExtensionKeys: Set<String> = [
+        "hr", "cad", "power", "speed", "course", "atemp",
+        "wtemp", "depth", "bearing",
+    ]
+
+    private static func rawTrackPointExtensions(
+        _ extensions: [String: [String: Sendable]]
+    ) -> [String: Sendable] {
+        var result: [String: Sendable] = [:]
+        for (prefix, namespace) in extensions {
+            if prefix == "gpxtpx" {
+                let remaining = namespace.filter { !typedGPXTrackExtensionKeys.contains($0.key) }
+                if !remaining.isEmpty {
+                    result[prefix] = remaining
+                }
+            }
+            else {
+                result[prefix] = namespace
+            }
+        }
+        return result
+    }
+
+    private static func trackPointQuality(_ wp: GPXWaypoint) -> [String: Sendable] {
+        var quality: [String: Sendable] = [:]
+        if let v = wp.magneticVariation { quality["magvar"] = v }
+        if let v = wp.geoidHeight { quality["geoidheight"] = v }
+        if let v = wp.fix { quality["fix"] = v.rawValue }
+        if let v = wp.satellites { quality["sat"] = v }
+        if let v = wp.horizontalDilution { quality["hdop"] = v }
+        if let v = wp.verticalDilution { quality["vdop"] = v }
+        if let v = wp.positionDilution { quality["pdop"] = v }
+        if let v = wp.ageOfDGPSData { quality["ageofdgpsdata"] = v }
+        if let v = wp.dgpsid { quality["dgpsid"] = v }
+        return quality
+    }
+
+    private static func extensionDictionary(
+        from raw: [String: Sendable]?
+    ) -> [String: [String: Sendable]] {
+        guard let raw else { return [:] }
+        var result: [String: [String: Sendable]] = [:]
+        for (prefix, value) in raw {
+            if let namespace = value as? [String: Sendable] {
+                result[prefix] = namespace
+            }
+        }
+        return result
+    }
+
+    private static func optionalValue<T>(_ values: [T?]?, at index: Int) -> T? {
+        guard let values, values.indices.contains(index) else { return nil }
+        return values[index]
     }
 
     // MARK: - Metadata conversion
@@ -549,8 +711,15 @@ public enum GPXCoder {
         return members
     }
 
+    private static let metadataForeignMemberKeys: Set<String> = [
+        "gpx_name", "gpx_desc", "gpx_author", "gpx_copyright",
+        "gpx_link", "gpx_time", "gpx_keywords", "gpx_bounds",
+    ]
+
     private static func metadataFromForeignMembers(_ members: [String: Sendable]) -> GPXMetadata? {
-        guard !members.isEmpty else { return nil }
+        guard members.keys.contains(where: { metadataForeignMemberKeys.contains($0) }) else {
+            return nil
+        }
 
         let boundsDict = members["gpx_bounds"] as? [String: Sendable]
         let bounds: BoundingBox? = boundsDict.flatMap {
@@ -626,6 +795,14 @@ public enum GPXCoder {
         return nil
     }
 
+    private static func extensionInt(_ dict: [String: Sendable]?, _ key: String) -> Int? {
+        guard let val = dict?[key] else { return nil }
+        if let i = val as? Int { return i }
+        if let d = val as? Double { return Int(d) }
+        if let s = val as? String { return Int(s) }
+        return nil
+    }
+
     private static func doubleProp(_ props: [String: Sendable], _ key: String) -> Double? {
         if let d = props[key] as? Double { return d }
         if let i = props[key] as? Int { return Double(i) }
@@ -641,6 +818,7 @@ public enum GPXCoder {
     }
 
     private static func dateProp(_ props: [String: Sendable], _ key: String) -> Date? {
+        if let date = props[key] as? Date { return date }
         guard let s = props[key] as? String else { return nil }
         return GPXDateFormatter.parse(s)
     }
@@ -693,8 +871,22 @@ public enum GPXCoder {
 
     // MARK: - Helpers — misc
 
-    private static func inferGPXType(from geometry: GeoJsonGeometry) -> String? {
-        switch geometry.type {
+    private static func validateGPSCoordinate(_ coordinate: Coordinate3D) throws {
+        guard coordinate.latitude.isFinite, coordinate.longitude.isFinite,
+              (-90.0 ... 90.0).contains(coordinate.latitude),
+              (-180.0 ... 180.0).contains(coordinate.longitude)
+        else {
+            throw GPXError.invalidCoordinate(
+                detail: "lat='\(coordinate.latitude)' lon='\(coordinate.longitude)'")
+        }
+        if let altitude = coordinate.altitude, !altitude.isFinite {
+            throw GPXError.invalidCoordinate(
+                detail: "non-finite altitude at lat='\(coordinate.latitude)' lon='\(coordinate.longitude)'")
+        }
+    }
+
+    private static func inferGPXType(from geometry: GeoJsonGeometry?) -> String? {
+        switch geometry?.type {
         case .point: "wpt"
         case .lineString: "rte"
         case .multiLineString: "trk"

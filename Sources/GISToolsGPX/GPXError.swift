@@ -44,7 +44,7 @@ public enum GPXError: LocalizedError {
         case .invalidGPX(let detail):
             "Invalid GPX: \(detail)"
         case .unsupportedVersion(let version):
-            "Unsupported GPX version '\(version)'. Only version 1.1 is supported."
+            "Unsupported GPX version '\(version)'. Supported versions are 1.1 (read/write) and 1.0 (read-only)."
         case .invalidCoordinate(let detail):
             "Invalid coordinate: \(detail)"
         }

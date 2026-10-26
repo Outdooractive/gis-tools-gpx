@@ -335,24 +335,18 @@ struct GPXRoundTripTests {
         try original.writeGPX(to: tempURL)
         let reloaded = try #require(FeatureCollection(gpx: tempURL))
 
-        let waypoints = reloaded.features.filter {
-            ($0.properties["gpx_type"] as? String) == "wpt"
-        }
-        #expect(waypoints.count == 1)
-        #expect(waypoints[0].properties["name"] as? String == "Outdooractive HQ")
-
-        let extensions = waypoints[0].properties["extensions"] as? [String: Sendable]
-        let gpxx = extensions?["gpxx"] as? [String: Sendable]
-
-        let address = gpxx?["Address"] as? [String: Sendable]
-        #expect(address?["City"] as? String == "Berlin")
-        #expect(address?["Country"] as? String == "Germany")
-
-        let categories = gpxx?["Categories"] as? [Sendable]
-        if let cats = categories {
-            #expect(cats.count == 3 || cats.count == 4,
-                    "Categories count mismatch: \(cats.count)")
-        }
+        let waypoint = try #require(reloaded.gpxWaypoints.first)
+        #expect(waypoint.gpxName == "Outdooractive HQ")
+        #expect(waypoint.gpxCategories == ["Office", "Technology", "Outdoor"])
+        #expect(waypoint.gpxAddress?.city == "Berlin")
+        #expect(waypoint.gpxAddress?.country == "Germany")
+        #expect(waypoint.gpxAddress?.streetAddresses
+            == ["123 Alpinestrasse", "Floor 4"])
+        #expect(waypoint.gpxPhoneNumbers.count == 2)
+        #expect(waypoint.gpxPhoneNumbers[0].category == "Work")
+        #expect(waypoint.gpxPhoneNumbers[1].category == "Mobile")
+        #expect(waypoint.gpxDisplayMode == "SymbolAndName")
+        #expect(waypoint.gpxProximity == 50.0)
     }
 
 }

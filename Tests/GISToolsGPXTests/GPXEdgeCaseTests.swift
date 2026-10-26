@@ -70,8 +70,8 @@ struct GPXEdgeCaseTests {
         #expect(trks.count == 1)
 
         #expect(wpts[0].properties["name"] as? String == "Test Point")
-        #expect(rtes[0].geometry.type == .lineString)
-        #expect(trks[0].geometry.type == .multiLineString)
+        #expect(rtes[0].geometry?.type == .lineString)
+        #expect(trks[0].geometry?.type == .multiLineString)
     }
 
 }

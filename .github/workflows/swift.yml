@@ -1,24 +1,77 @@
-# This workflow will build a Swift project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-swift
-
 name: Swift
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  build:
-
+  macos:
+    name: test (macOS)
     runs-on: macos-latest
+    timeout-minutes: 30
 
     steps:
-    - uses: swift-actions/setup-swift@v3
-    - uses: actions/checkout@v4
-    - name: Clean Package
-      run: swift package clean
-    - name: Build Test
-      run: swift test
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v3
+      - name: Build
+        run: swift build
+      - name: Test with coverage
+        run: swift test --enable-code-coverage
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-macos
+          path: .build/**/codecov/*.json
+          if-no-files-found: warn
 
+  linux:
+    name: test (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: swift:6.1
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test with coverage
+        run: swift test --enable-code-coverage
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-linux
+          path: .build/**/codecov/*.json
+          if-no-files-found: warn
+
+  docs:
+    name: documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: swift:6.1
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate symbol graphs
+        run: |
+          mkdir -p .build/symbol-graphs .build/gpx-symbols
+          swift build -Xswiftc -emit-symbol-graph \
+            -Xswiftc -emit-symbol-graph-dir \
+            -Xswiftc "$PWD/.build/symbol-graphs"
+          cp .build/symbol-graphs/GISToolsGPX*.json .build/gpx-symbols/
+      - name: Build documentation
+        run: |
+          docc convert Sources/GISToolsGPX/GISToolsGPX.docc \
+            --additional-symbol-graph-dir .build/gpx-symbols \
+            --output-path .build/docs \
+            --fallback-display-name GISToolsGPX \
+            --fallback-bundle-identifier org.outdooractive.GISToolsGPX \
+            --warnings-as-errors

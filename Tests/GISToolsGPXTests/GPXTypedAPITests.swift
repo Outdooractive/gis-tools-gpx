@@ -26,7 +26,7 @@ struct GPXTypedAPITests {
         let url = try #require(TestData.url(name: "routes.gpx"))
         let fc = try #require(FeatureCollection(gpx: url))
 
-        let route = fc.features.first!
+        let route = try #require(fc.features.first)
         #expect(route.gpxType == .route)
         #expect(route.gpxName == "Berlin City Walk")
         #expect(route.gpxTypeName == "Walking")
@@ -37,7 +37,7 @@ struct GPXTypedAPITests {
         let url = try #require(TestData.url(name: "tracks.gpx"))
         let fc = try #require(FeatureCollection(gpx: url))
 
-        let track = fc.features.first!
+        let track = try #require(fc.features.first)
         #expect(track.gpxType == .track)
         #expect(track.gpxName == "Morning Run")
         #expect(track.gpxTypeName == "Running")
@@ -70,7 +70,7 @@ struct GPXTypedAPITests {
         let url = try #require(TestData.url(name: "extensions_structured.gpx"))
         let fc = try #require(FeatureCollection(gpx: url))
 
-        let wp = fc.features.filter { $0.gpxType == .waypoint }.first!
+        let wp = try #require(fc.features.first { $0.gpxType == .waypoint })
         let address = wp.gpxAddress
         #expect(address?.city == "Berlin")
         #expect(address?.country == "Germany")
@@ -94,7 +94,7 @@ struct GPXTypedAPITests {
         let url = try #require(TestData.url(name: "extensions_gpxtpx.gpx"))
         let fc = try #require(FeatureCollection(gpx: url))
 
-        let track = fc.features.filter { $0.gpxType == .track }.first!
+        let track = try #require(fc.features.first { $0.gpxType == .track })
         #expect(track.gpxHeartRate == nil)
         #expect(track.gpxPower == nil)
     }
@@ -119,7 +119,7 @@ struct GPXTypedAPITests {
         try fc.writeGPX(to: tempURL)
         let reloaded = try #require(FeatureCollection(gpx: tempURL))
 
-        let wp = reloaded.features.first!
+        let wp = try #require(reloaded.features.first)
         #expect(wp.gpxType == .waypoint)
         #expect(wp.gpxName == "Custom Point")
         #expect(wp.gpxSymbol == "Flag")
@@ -172,7 +172,7 @@ struct GPXTypedAPITests {
         try fc.writeGPX(to: tempURL)
         let reloaded = try #require(FeatureCollection(gpx: tempURL))
 
-        let wp = reloaded.features.first!
+        let wp = try #require(reloaded.features.first)
         #expect(wp.gpxName == "Office")
         let addr = wp.gpxAddress
         #expect(addr?.city == "Berlin")
@@ -188,10 +188,10 @@ struct GPXTypedAPITests {
         let url = try #require(TestData.url(name: "gpx10.gpx"))
         let fc = try #require(FeatureCollection(gpx: url))
 
-        let track = fc.features.filter { $0.gpxType == .track }.first!
+        let track = try #require(fc.features.first { $0.gpxType == .track })
         #expect(track.gpxCourse10 == nil)
 
-        let waypoint = fc.features.filter { $0.gpxType == .waypoint }.first!
+        let waypoint = try #require(fc.features.first { $0.gpxType == .waypoint })
         #expect(waypoint.gpxLinks.isEmpty == false)
         #expect(waypoint.gpxLinks[0].href == "https://www.bundestag.de")
         #expect(waypoint.gpxLinks[0].text == "Bundestag website")
@@ -233,41 +233,25 @@ struct GPXTypedAPITests {
         let url = try #require(TestData.url(name: "extensions_gpxtpx.gpx"))
         let fc = try #require(FeatureCollection(gpx: url))
 
-        let track = fc.features.filter { $0.gpxType == .track }.first!
+        let track = try #require(fc.gpxTracks.first)
         // Aligned arrays: count matches number of track points (3)
-        let hr = track.gpxHeartRates
-        #expect(hr?.count == 3)
-        #expect(hr?[0] == 120)
-        #expect(hr?[1] == 145)
-        #expect(hr?[2] == 160)
+        let hr = try #require(track.gpxHeartRates)
+        #expect(hr.count == 3)
+        #expect(hr[0] == 120)
+        #expect(hr[1] == 145)
+        #expect(hr[2] == 160)
 
-        let cad = track.gpxCadences
-        #expect(cad?.count == 3)
-        #expect(cad?[0] == 85)
-        #expect(cad?[1] == 90)
-        #expect(cad?[2] == 95)
+        let cad = try #require(track.gpxCadences)
+        #expect(cad == [85, 90, 95])
 
-        // Power not present in this fixture — array might be nil or all-nil
-        let pw = track.gpxPowers
-        if let powers = pw {
-            #expect(powers.count == 3)
-            #expect(powers[0] == nil)
-            #expect(powers[1] == nil)
-            #expect(powers[2] == nil)
-        }
+        // Power not present in this fixture.
+        #expect(track.gpxPowers == nil)
 
-        let spd = track.gpxSpeeds
-        #expect(spd?.count == 3)
-        #expect(spd?[2] != nil, "Speed should be on the third track point")
-        if let s = spd?[2] {
-            #expect(abs(s - 12.5) < 0.01)
-        }
+        let spd = try #require(track.gpxSpeeds)
+        #expect(spd == [nil, nil, 12.5])
 
-        let tmp = track.gpxAirTemperatures
-        #expect(tmp?.count == 3)
-        if let t2 = tmp?[1] {
-            #expect(t2 == 18.5)
-        }
+        let tmp = try #require(track.gpxAirTemperatures)
+        #expect(tmp == [nil, 18.5, nil])
     }
 
     @Test
@@ -275,7 +259,7 @@ struct GPXTypedAPITests {
         let url = try #require(TestData.url(name: "extensions_gpxtpx.gpx"))
         let fc = try #require(FeatureCollection(gpx: url))
 
-        guard let track = fc.features.filter({ $0.gpxType == .track }).first else { return }
+        let track = try #require(fc.gpxTracks.first)
         let pts = track.gpxPointFeatures()
         #expect(pts.features.count == 3)
 
@@ -297,7 +281,7 @@ struct GPXTypedAPITests {
     func gpxPointFeaturesRoundTrip() async throws {
         let url = try #require(TestData.url(name: "extensions_gpxtpx.gpx"))
         let fc = try #require(FeatureCollection(gpx: url))
-        guard let track = fc.features.filter({ $0.gpxType == .track }).first else { return }
+        let track = try #require(fc.gpxTracks.first)
 
         let pts = track.gpxPointFeatures()
         let tempURL = FileManager.default.temporaryDirectory
@@ -329,7 +313,7 @@ struct GPXTypedAPITests {
         let url = try #require(TestData.url(name: "tracks.gpx"))
         let fc = try #require(FeatureCollection(gpx: url))
 
-        guard let track = fc.features.filter({ $0.gpxType == .track }).first else { return }
+        let track = try #require(fc.gpxTracks.first)
         let all = track.gpxPointFeatures()
         #expect(all.features.count == 6)
 
@@ -348,12 +332,12 @@ struct GPXTypedAPITests {
     func trackFromPointFeaturesRoundTrip() async throws {
         let url = try #require(TestData.url(name: "extensions_gpxtpx.gpx"))
         let fc = try #require(FeatureCollection(gpx: url))
-        guard let original = fc.gpxTracks.first else { return }
+        let original = try #require(fc.gpxTracks.first)
 
         let pts = original.gpxPointFeatures()
-        guard let rebuilt = pts.gpxTrackFromPointFeatures() else { return }
+        let rebuilt = try #require(pts.gpxTrackFromPointFeatures())
 
-        guard let ml = rebuilt.geometry as? MultiLineString else { return }
+        let ml = try #require(rebuilt.geometry as? MultiLineString)
         #expect(ml.lineStrings[0].coordinates.count == 3)
         #expect(rebuilt.gpxHeartRates?[0] == 120)
         #expect(rebuilt.gpxCadences?[1] == 90)
@@ -370,7 +354,7 @@ struct GPXTypedAPITests {
     func trackFromPointFeaturesConvenienceInit() async throws {
         let url = try #require(TestData.url(name: "extensions_gpxtpx.gpx"))
         let fc = try #require(FeatureCollection(gpx: url))
-        guard let original = fc.gpxTracks.first else { return }
+        let original = try #require(fc.gpxTracks.first)
 
         let pts = original.gpxPointFeatures()
         let rebuilt = Feature(gpxTrackFrom: pts)

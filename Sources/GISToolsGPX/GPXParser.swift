@@ -70,6 +70,10 @@ extension GPXParser {
             throw GPXError.invalidXML(detail: "Unknown XML parse error")
         }
 
+        guard delegate.hasUnclosedElements == false else {
+            throw GPXError.invalidXML(detail: "Unclosed XML elements")
+        }
+
         guard let gpxFile = delegate.gpxFile else {
             throw GPXError.invalidGPX(detail: "No GPX root element found")
         }
@@ -116,6 +120,10 @@ enum GPXParser {
 
         // Accumulated characters for the current text node
         private var currentCharacters: String = ""
+
+        var hasUnclosedElements: Bool {
+            !pathStack.isEmpty
+        }
 
         // Element path stack (lowercased local names)
         private var pathStack: [String] = []

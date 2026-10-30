@@ -26,7 +26,7 @@ let speed = point.gpxSpeed
 ```
 
 Track features accumulate `<trkpt>` values into arrays (see
-<doc:WaypointsRoutesTracks>). `gpxWaterTemperatures`, `gpxDepths`, and
+[Waypoints, routes, and tracks][waypointsroutestracks]). `gpxWaterTemperatures`, `gpxDepths`, and
 `gpxBearings` cover the corresponding gpxtpx fields.
 
 When writing, gpxtpx values are placed inside a
@@ -134,3 +134,5 @@ The result has a single segment and preserves per-point times, elevations,
 sensor arrays, names, comments, descriptions, sources, symbols, types, links,
 raw extensions, and quality fields. Lap boundaries from the original
 `<trkseg>` elements are not reconstructed.
+
+[waypointsroutestracks]: https://swiftpackageindex.com/Outdooractive/gis-tools-gpx/documentation/gistoolsgpx/waypointsroutestracks

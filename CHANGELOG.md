@@ -4,9 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 3.0.0 - 2026-10-30
+
 ### Dependency
 
-- Update `gis-tools` from `3.0.0-beta.1` to `3.0.0-beta.5`.
+- Updated `gis-tools` to 3.0.0.
 - Adapt to optional `Feature.geometry` in gis-tools 3.0.
 
 ### Added

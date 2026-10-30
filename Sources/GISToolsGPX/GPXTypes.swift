@@ -58,6 +58,12 @@ public struct GPXLink: Equatable, Sendable {
     /// Optional MIME type of the linked resource.
     public var type: String?
 
+    /// Creates a link to an external resource.
+    ///
+    /// - Parameters:
+    ///   - href: The URL of the link.
+    ///   - text: Optional link text.
+    ///   - type: Optional MIME type of the linked resource.
     public init(href: String, text: String? = nil, type: String? = nil) {
         self.href = href
         self.text = text
@@ -80,6 +86,12 @@ public struct GPXPerson: Equatable, Sendable {
     /// Optional link to a website.
     public var link: GPXLink?
 
+    /// Creates a person or organization.
+    ///
+    /// - Parameters:
+    ///   - name: Name of the person or organization.
+    ///   - email: Email address.
+    ///   - link: Optional link to a website.
     public init(name: String? = nil, email: String? = nil, link: GPXLink? = nil) {
         self.name = name
         self.email = email
@@ -102,6 +114,12 @@ public struct GPXCopyright: Equatable, Sendable {
     /// A URL to the license agreement.
     public var license: String?
 
+    /// Creates copyright and licensing information.
+    ///
+    /// - Parameters:
+    ///   - author: The copyright holder.
+    ///   - year: The year of copyright.
+    ///   - license: A URL to the license agreement.
     public init(author: String, year: Int? = nil, license: String? = nil) {
         self.author = author
         self.year = year
@@ -130,6 +148,14 @@ public struct GPXAddress: Equatable, Sendable {
     /// Postal or ZIP code.
     public var postalCode: String?
 
+    /// Creates a postal address.
+    ///
+    /// - Parameters:
+    ///   - streetAddresses: Street address lines (up to two).
+    ///   - city: City or locality.
+    ///   - state: State or province.
+    ///   - country: Country name.
+    ///   - postalCode: Postal or ZIP code.
     public init(
         streetAddresses: [String] = [],
         city: String? = nil,
@@ -157,6 +183,11 @@ public struct GPXPhoneNumber: Equatable, Sendable {
     /// Optional category (e.g. "Work", "Home", "Mobile").
     public var category: String?
 
+    /// Creates a phone number entry.
+    ///
+    /// - Parameters:
+    ///   - value: The phone number.
+    ///   - category: Optional category (e.g. "Work", "Home", "Mobile").
     public init(value: String, category: String? = nil) {
         self.value = value
         self.category = category
